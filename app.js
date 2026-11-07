@@ -8,6 +8,8 @@
   var CLAVE_TEXTO = 'consulta-bcra.cuits'; // versión anterior (una sola lista)
   var CLAVE_LISTAS = 'consulta-bcra.listas';
   var CLAVE_CAT = 'consulta-bcra.categoria';
+  var CLAVE_MARCADOS = 'consulta-bcra.marcados';
+  var marcados = {};    // 'categoria:cuit' -> true (tildados para consultar)
   var CATEGORIAS = [
     { id: 'proveedores', nombre: 'Proveedores' },
     { id: 'agronomias', nombre: 'Agronomías' },
@@ -224,15 +226,51 @@
     return lista;
   }
 
+  function clave(cat, cuit) { return cat + ':' + cuit; }
+  function tildados(cat) {
+    return leerLista(listas[cat] || '', cat).filter(function (x) { return marcados[clave(cat, x.cuit)]; });
+  }
+
   function actualizarEstadoLista() {
-    var lista = leerLista();
-    var malos = lista.filter(function (x) { return !x.valido; });
-    var t = lista.length ? lista.length + ' CUIT para consultar.' : 'Todavía no hay CUIT cargados.';
-    if (malos.length) t += ' Ojo: ' + malos.map(function (x) { return fmtCuit(x.cuit); }).join(', ') + (malos.length === 1 ? ' no parece un CUIT válido' : ' no parecen CUIT válidos') + ' (dígito verificador).';
-    $('cuits-estado').textContent = t;
     listas[catActual] = $('cuits').value;
     guardarListas();
+    renderLista();
     renderSolapas();
+  }
+
+  // Lista con casillas de la categoría elegida (filtrada por el buscador).
+  function visibles() {
+    var q = $('buscar').value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    var qn = soloNumeros(q);
+    return leerLista(listas[catActual] || '', catActual).filter(function (x) {
+      if (!q) return true;
+      var nom = x.referencia.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return nom.indexOf(q) !== -1 || (qn.length >= 3 && x.cuit.indexOf(qn) !== -1);
+    });
+  }
+
+  function renderLista() {
+    var todos = leerLista(listas[catActual] || '', catActual);
+    var vis = visibles();
+    $('lista-cuits').innerHTML = !todos.length
+      ? '<li class="l-vacio">Todavía no hay CUIT en ' + escapar(nombreCat(catActual)) + '. Cargalos en «Agregar o editar CUIT» o con «Importar Excel».</li>'
+      : !vis.length ? '<li class="l-vacio">Ninguno coincide con la búsqueda.</li>'
+      : vis.map(function (x) {
+        return '<li><label><input type="checkbox" data-cuit="' + x.cuit + '"' + (marcados[clave(catActual, x.cuit)] ? ' checked' : '') + '>' +
+          '<span class="l-cuit">' + fmtCuit(x.cuit) + '</span><span class="l-nombre">' + escapar(x.referencia) + '</span>' +
+          (x.valido ? '' : '<span class="l-malo" title="El dígito verificador no coincide">CUIT dudoso</span>') + '</label></li>';
+      }).join('');
+    var n = todos.filter(function (x) { return marcados[clave(catActual, x.cuit)]; }).length;
+    var total = 0;
+    CATEGORIAS.forEach(function (c) { total += tildados(c.id).length; });
+    $('cuits-estado').textContent = todos.length
+      ? n + ' de ' + todos.length + ' tildados en ' + nombreCat(catActual) + (total !== n ? ' (' + total + ' en todas las categorías).' : '.')
+      : '';
+    if (!todos.length) $('editar-lista').open = true;
+  }
+
+  function guardarMarcados() {
+    try { localStorage.setItem(CLAVE_MARCADOS, JSON.stringify(marcados)); } catch (e) { /* nada */ }
   }
 
   function guardarListas() {
@@ -241,6 +279,7 @@
 
   function cargarListas() {
     try { listas = JSON.parse(localStorage.getItem(CLAVE_LISTAS) || '{}') || {}; } catch (e) { listas = {}; }
+    try { marcados = JSON.parse(localStorage.getItem(CLAVE_MARCADOS) || '{}') || {}; } catch (e) { marcados = {}; }
     try {
       var vieja = localStorage.getItem(CLAVE_TEXTO);
       if (vieja && !Object.keys(listas).length) { listas.varios = vieja; catActual = 'varios'; }
@@ -252,9 +291,9 @@
 
   function renderSolapas() {
     $('solapas').innerHTML = CATEGORIAS.map(function (c) {
-      var n = leerLista(listas[c.id] || '', c.id).length;
-      return '<button type="button" class="solapa" role="tab" data-cat="' + c.id + '" aria-selected="' + (c.id === catActual) + '">' +
-        escapar(c.nombre) + '<span class="cuenta">' + n + '</span></button>';
+      var n = leerLista(listas[c.id] || '', c.id).length, t = tildados(c.id).length;
+      return '<button type="button" class="solapa" role="tab" data-cat="' + c.id + '" aria-selected="' + (c.id === catActual) + '" title="' + t + ' tildados de ' + n + '">' +
+        escapar(c.nombre) + '<span class="cuenta">' + (t ? t + '/' : '') + n + '</span></button>';
     }).join('');
     $('nombre-cat').textContent = nombreCat(catActual);
   }
@@ -263,6 +302,8 @@
     listas[catActual] = $('cuits').value;
     catActual = id;
     $('cuits').value = listas[id] || '';
+    $('buscar').value = '';
+    $('editar-lista').open = false;
     actualizarEstadoLista();
   }
 
@@ -427,9 +468,9 @@
     listas[catActual] = $('cuits').value;
     var lista = [];
     (todas ? CATEGORIAS.map(function (c) { return c.id; }) : [catActual]).forEach(function (id) {
-      lista = lista.concat(leerLista(listas[id] || '', id));
+      lista = lista.concat(tildados(id));
     });
-    if (!lista.length) { alert(todas ? 'No hay CUIT cargados en ninguna categoría.' : 'Pegá al menos un CUIT (11 números) en ' + nombreCat(catActual) + '.'); return; }
+    if (!lista.length) { alert(todas ? 'No hay CUIT tildados en ninguna categoría.' : 'Tildá al menos un CUIT de ' + nombreCat(catActual) + ' (o tocá «Marcar todos»).'); return; }
     filtro = todas ? '' : catActual;
     var opciones = { cheques: $('op-cheques').checked, historicas: $('op-historicas').checked };
     consultando = true;
@@ -806,6 +847,23 @@
       if (this.files && this.files[0]) leerExcel(this.files[0]);
       this.value = '';
     });
+    $('buscar').addEventListener('input', renderLista);
+    $('lista-cuits').addEventListener('change', function (e) {
+      var d = e.target.getAttribute('data-cuit');
+      if (!d) return;
+      if (e.target.checked) marcados[clave(catActual, d)] = true; else delete marcados[clave(catActual, d)];
+      guardarMarcados();
+      renderLista();
+      renderSolapas();
+    });
+    function marcarVisibles(si) {
+      visibles().forEach(function (x) { if (si) marcados[clave(catActual, x.cuit)] = true; else delete marcados[clave(catActual, x.cuit)]; });
+      guardarMarcados();
+      renderLista();
+      renderSolapas();
+    }
+    $('btn-marcar-todos').addEventListener('click', function () { marcarVisibles(true); });
+    $('btn-marcar-ninguno').addEventListener('click', function () { marcarVisibles(false); });
     $('btn-limpiar').addEventListener('click', function () {
       if ($('cuits').value && !confirm('¿Borrar todos los CUIT de ' + nombreCat(catActual) + '?')) return;
       $('cuits').value = '';
