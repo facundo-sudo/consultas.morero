@@ -4,7 +4,6 @@
  * directamente (no permite pedidos desde otras páginas).
  *
  * Uso: /api/bcra?cuit=30707866981&tipo=deudas|historicas|cheques
- *      /api/bcra?tipo=cotizacion&desde=2025-01-01&hasta=2026-11-07  (dólar oficial, API de estadísticas cambiarias)
  */
 const RUTAS = {
   deudas: 'Deudas/',
@@ -16,16 +15,6 @@ module.exports = async function (req, res) {
   const cuit = String((req.query && req.query.cuit) || '').replace(/\D/g, '');
   const tipo = String((req.query && req.query.tipo) || 'deudas');
   res.setHeader('Cache-Control', 'no-store');
-
-  if (tipo === 'cotizacion') {
-    const desde = String((req.query && req.query.desde) || '');
-    const hasta = String((req.query && req.query.hasta) || '');
-    const fecha = /^\d{4}-\d{2}-\d{2}$/;
-    let urlTc = 'https://api.bcra.gob.ar/estadisticascambiarias/v1.0/Cotizaciones';
-    if (fecha.test(desde) && fecha.test(hasta)) urlTc += '/USD?fechadesde=' + desde + '&fechahasta=' + hasta + '&limit=1000';
-    await reenviar(urlTc, res);
-    return;
-  }
 
   if (cuit.length !== 11) {
     res.status(400).json({ status: 400, errorMessages: ['El CUIT tiene que tener 11 números.'] });

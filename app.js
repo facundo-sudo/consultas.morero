@@ -35,10 +35,10 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Dólar: de hoy o de fin de cada mes (API de estadísticas cambiarias del BCRA), o cargado a mano
+  // Dólar Banco Nación, Divisas, vendedor: de hoy o de fin de cada mes (api/bna.js), o cargado a mano
   // ---------------------------------------------------------------------------
   var CLAVE_TC = 'consulta-bcra.tc';
-  var tc = { modo: 'hoy', hoy: null, meses: {} }; // hoy/meses[AAAAMM]: { valor, fecha, manual }
+  var tc = { fuente: 'bna', modo: 'hoy', hoy: null, meses: {} }; // hoy/meses[AAAAMM]: { valor, fecha, manual }
 
   function leerNumero(t) {
     t = String(t == null ? '' : t).replace(/[^\d.,]/g, '');
@@ -52,10 +52,10 @@
   function cargarTc() {
     try {
       var t = JSON.parse(localStorage.getItem(CLAVE_TC) || 'null');
-      if (t) { tc.modo = t.modo === 'mes' ? 'mes' : 'hoy'; tc.hoy = t.hoy || null; tc.meses = t.meses || {}; }
+      if (t && t.fuente === 'bna') { tc.modo = t.modo === 'mes' ? 'mes' : 'hoy'; tc.hoy = t.hoy || null; tc.meses = t.meses || {}; }
+      else if (t) tc.modo = t.modo === 'mes' ? 'mes' : 'hoy'; // valores viejos (BCRA A 3500): se descartan
     } catch (e) { /* nada */ }
   }
-  function aaaamm(fecha) { return fecha.slice(0, 4) + fecha.slice(5, 7); }
   function isoFecha(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 
   // Últimos 25 meses (del actual para atrás), como AAAAMM.
@@ -88,53 +88,80 @@
   }
   function fmtMonto(miles, periodo) { return fmtPesos(miles) + fmtUsd(miles, periodo); }
 
-  function usdDeDetalle(detalle) {
-    for (var i = 0; i < (detalle || []).length; i++) {
-      if (detalle[i].codigoMoneda === 'USD') return Number(detalle[i].tipoCotizacion) || 0;
-    }
-    return 0;
+  // Meses que hacen falta: los períodos de los resultados (deuda actual e historial).
+  function mesesNecesarios() {
+    var m = {};
+    resultados.forEach(function (r) {
+      if (r.deudas && r.deudas.periodo) m[r.deudas.periodo] = true;
+      (r.historicas || []).forEach(function (p) { m[p.periodo] = true; });
+    });
+    return Object.keys(m).sort().reverse();
   }
 
-  // Trae del BCRA el dólar de los últimos 25 meses. forzar: pisa también lo cargado a mano en «hoy».
-  function traerTc(forzar) {
-    var desde = ultimosMeses()[24].slice(0, 4) + '-' + ultimosMeses()[24].slice(4) + '-01';
-    $('tc-estado').textContent = 'Buscando el dólar en el BCRA…';
-    return fetch('api/bcra?tipo=cotizacion&desde=' + desde + '&hasta=' + isoFecha(new Date()), { headers: { Accept: 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        var lista = Array.isArray(j.results) ? j.results : (j.results ? [j.results] : []);
-        var ultimo = null, porMes = {};
-        lista.forEach(function (x) {
-          var v = usdDeDetalle(x.detalle), f = String(x.fecha || '').slice(0, 10);
-          if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(f)) return;
-          if (!ultimo || f > ultimo.fecha) ultimo = { valor: v, fecha: f };
-          var m = aaaamm(f);
-          if (!porMes[m] || f > porMes[m].fecha) porMes[m] = { valor: v, fecha: f };
+  function pedirBna(mes) {
+    return fetch('api/bna' + (mes ? '?mes=' + mes : ''), { headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (!r.ok || !j.venta) throw new Error(j.error || 'sin datos');
+          return j;
         });
-        if (!ultimo) throw new Error((j.errorMessages || [])[0] || 'sin datos');
-        if (forzar || !tc.hoy || !tc.hoy.manual) tc.hoy = { valor: ultimo.valor, fecha: ultimo.fecha, manual: false };
-        Object.keys(porMes).forEach(function (m) {
-          if (!tc.meses[m] || !tc.meses[m].manual) tc.meses[m] = { valor: porMes[m].valor, fecha: porMes[m].fecha, manual: false };
-        });
-        guardarTc();
-        renderTc();
-        renderTabla();
-      })
-      .catch(function () {
-        renderTc();
-        $('tc-estado').textContent = 'No se pudo traer el dólar del BCRA. Escribilo a mano' + (tc.modo === 'mes' ? ' en «Dólar por mes».' : '.') +
-          (tc.hoy && tc.hoy.valor ? ' Por ahora se usa el último guardado.' : '');
       });
+  }
+
+  // Dólar del Banco Nación (Divisas, vendedor). forzar: pisa también lo cargado a mano en «hoy».
+  var trayendoMeses = false;
+  function traerTc(forzar) {
+    $('tc-estado').textContent = 'Buscando el dólar en el Banco Nación…';
+    return pedirBna('').then(function (j) {
+      if (forzar || !tc.hoy || !tc.hoy.manual) tc.hoy = { valor: j.venta, fecha: j.fecha, manual: false };
+      guardarTc();
+      renderTc();
+      renderTabla();
+    }).catch(function (e) {
+      renderTc();
+      $('tc-estado').textContent = 'No se pudo traer el dólar del Banco Nación (' + e.message + '). Escribilo a mano.' +
+        (tc.hoy && tc.hoy.valor ? ' Por ahora se usa el último guardado.' : '');
+    }).then(function () { if (tc.modo === 'mes') return traerMeses(forzar); });
+  }
+
+  // Trae, de a uno, el dólar de fin de mes de los períodos que faltan (no pisa los cargados a mano).
+  function traerMeses(forzar) {
+    if (trayendoMeses) return Promise.resolve();
+    var faltan = mesesNecesarios().filter(function (m) {
+      var x = tc.meses[m];
+      return !x || (!x.manual && (forzar || !x.valor));
+    });
+    if (!faltan.length) return Promise.resolve();
+    trayendoMeses = true;
+    var fallaron = [];
+    var i = 0;
+    $('tc-meses-estado').textContent = 'Buscando el dólar de ' + faltan.length + (faltan.length === 1 ? ' mes' : ' meses') + ' en el Banco Nación…';
+    function siguiente() {
+      if (i >= faltan.length) return Promise.resolve();
+      var m = faltan[i++];
+      return pedirBna(m).then(function (j) {
+        tc.meses[m] = { valor: j.venta, fecha: j.fecha, manual: false };
+        guardarTc();
+      }, function () { fallaron.push(m); }).then(siguiente);
+    }
+    return siguiente().then(function () {
+      trayendoMeses = false;
+      renderTc();
+      renderTabla();
+      $('tc-meses-estado').textContent = fallaron.length
+        ? 'No se pudo traer el dólar de ' + fallaron.map(fmtPeriodo).join(', ') + '. Escribilo a mano en «Dólar por mes».'
+        : '';
+    });
   }
 
   function renderTc() {
     document.querySelectorAll('input[name="tc-modo"]').forEach(function (r) { r.checked = r.value === tc.modo; });
     if (document.activeElement !== $('tc-hoy')) $('tc-hoy').value = tc.hoy && tc.hoy.valor ? fmtTc(tc.hoy.valor) : '';
     $('tc-estado').textContent = !tc.hoy || !tc.hoy.valor ? 'Sin dólar cargado.' :
-      tc.hoy.manual ? 'Cargado a mano.' : 'Del BCRA, cotización del ' + fmtFecha(tc.hoy.fecha) + '.';
+      tc.hoy.manual ? 'Cargado a mano.' : 'Banco Nación, Divisas vendedor, cotización del ' + fmtFecha(tc.hoy.fecha) + '.';
     $('tc-meses').innerHTML = ultimosMeses().map(function (m) {
       var x = tc.meses[m];
-      var titulo = x ? (x.manual ? 'Cargado a mano' : 'Del BCRA, cotización del ' + fmtFecha(x.fecha)) : 'Sin dato';
+      var titulo = x ? (x.manual ? 'Cargado a mano' : 'Banco Nación, cotización del ' + fmtFecha(x.fecha)) : 'Sin dato';
       return '<label title="' + escapar(titulo) + '">' + fmtPeriodo(m) +
         '<input type="text" inputmode="decimal" data-mes="' + m + '" value="' + (x && x.valor ? fmtTc(x.valor) : '') + '"' + (x && x.manual ? ' class="manual"' : '') + '></label>';
     }).join('');
@@ -377,6 +404,7 @@
       $('progreso').textContent = (detener ? 'Consulta detenida. ' : 'Listo. ') + resultados.length + ' de ' + lista.length + ' consultados' +
         (errores ? ' (' + errores + ' con error).' : '.') + ' ' + new Date().toLocaleString('es-AR');
       consultando = false;
+      if (tc.modo === 'mes') traerMeses(false);
       $('btn-consultar').disabled = false;
       $('btn-consultar-todas').disabled = false;
       $('btn-detener').hidden = true;
@@ -612,6 +640,7 @@
         guardarTc();
         renderTc();
         renderTabla();
+        if (tc.modo === 'mes') traerMeses(false);
       });
     });
     $('tc-hoy').addEventListener('change', function () {

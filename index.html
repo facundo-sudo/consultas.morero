@@ -52,19 +52,20 @@
         <label class="check"><input type="radio" name="tc-modo" value="mes"> Con el dólar de fin de cada mes (el del período que informa el BCRA)</label>
       </div>
       <div class="tc-hoy">
-        <label for="tc-hoy" class="etiqueta">Dólar de hoy ($ por US$)</label>
+        <label for="tc-hoy" class="etiqueta">Dólar de hoy: BNA Divisas vendedor ($ por US$)</label>
         <div class="tc-fila">
           <input type="text" inputmode="decimal" id="tc-hoy" placeholder="Ej.: 1450,50">
-          <button type="button" class="boton" id="btn-tc">Traer del BCRA</button>
+          <button type="button" class="boton" id="btn-tc">Traer del Banco Nación</button>
         </div>
         <p id="tc-estado" class="ayuda"></p>
       </div>
       <details id="tc-meses-cont">
         <summary>Dólar por mes (se completa solo; se puede escribir a mano)</summary>
-        <p class="ayuda">Si escribís un valor, se usa ese en lugar del que trae el BCRA. Para volver al del BCRA, borralo y tocá «Traer del BCRA».</p>
+        <p class="ayuda">Se traen solos los meses que aparecen en los resultados. Si escribís un valor, se usa ese en lugar del del Banco Nación; para volver al del banco, borralo y tocá «Traer del Banco Nación».</p>
+        <p id="tc-meses-estado" class="ayuda"></p>
         <div class="tc-meses" id="tc-meses"></div>
       </details>
-      <p class="ayuda">Dólar oficial mayorista de referencia del BCRA (Comunicación A 3500), de la API de estadísticas cambiarias.</p>
+      <p class="ayuda">Dólar Banco de la Nación Argentina, Divisas, tipo vendedor (de www.bna.com.ar).</p>
     </section>
 
     <section class="tarjeta" id="sec-resultados" hidden>
