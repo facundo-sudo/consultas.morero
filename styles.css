@@ -64,3 +64,13 @@ textarea:focus { outline: 2px solid var(--bordo); outline-offset: 1px; }
 .solapas-chicas .solapa { padding: 4px 10px; font-size: .85rem; }
 label.etiqueta { display: block; }
 .solapas-chicas { margin: 10px 0; }
+.tc-modo { display: grid; gap: 8px; margin-bottom: 12px; }
+.tc-fila { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.tc-fila input, .tc-meses input { padding: 8px 10px; border: 1px solid var(--borde); border-radius: 8px; font: inherit; font-variant-numeric: tabular-nums; }
+.tc-fila input { width: 160px; }
+.tc-meses { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 8px; }
+.tc-meses label { font-size: .85rem; }
+.tc-meses input { width: 100%; }
+.tc-meses input.manual { border-color: var(--aviso-borde); background: var(--aviso); }
+#tc-meses-cont summary { cursor: pointer; font-weight: 600; color: var(--bordo); margin-top: 8px; }
+.usd { display: block; color: var(--gris); font-size: .85rem; }

@@ -25,9 +25,10 @@
       <label for="cuits" class="etiqueta">CUIT de <span id="nombre-cat">la categoría</span>: uno por renglón, con o sin guiones (se puede copiar una columna de Excel). Si después del CUIT ponés un nombre, se usa como referencia.</label>
       <textarea id="cuits" rows="8" placeholder="30-70786698-1  Nombre&#10;20123456786"></textarea>
       <p id="cuits-estado" class="ayuda"></p>
+      <p class="ayuda">Excel: se toma la columna con el CUIT y, si hay, la del nombre. Si tiene una columna «Categoría» (Proveedor, Agronomía, Productor, Grupo de siembra, Varios) o una hoja por categoría, cada CUIT va a su lista; si no, van a la categoría elegida.</p>
       <div class="botones">
         <label class="boton">
-          Subir Excel a esta categoría
+          Importar Excel
           <input type="file" id="archivo-excel" accept=".xlsx,.xls,.xlsm,.ods,.csv" hidden>
         </label>
         <button type="button" class="boton boton-texto" id="btn-limpiar">Borrar esta categoría</button>
@@ -44,9 +45,31 @@
       <p id="progreso" class="estado" hidden></p>
     </section>
 
+    <section class="tarjeta" id="sec-tc">
+      <h2><span class="num">2</span> Pasar a dólares</h2>
+      <div class="tc-modo">
+        <label class="check"><input type="radio" name="tc-modo" value="hoy" checked> Con el dólar de hoy</label>
+        <label class="check"><input type="radio" name="tc-modo" value="mes"> Con el dólar de fin de cada mes (el del período que informa el BCRA)</label>
+      </div>
+      <div class="tc-hoy">
+        <label for="tc-hoy" class="etiqueta">Dólar de hoy ($ por US$)</label>
+        <div class="tc-fila">
+          <input type="text" inputmode="decimal" id="tc-hoy" placeholder="Ej.: 1450,50">
+          <button type="button" class="boton" id="btn-tc">Traer del BCRA</button>
+        </div>
+        <p id="tc-estado" class="ayuda"></p>
+      </div>
+      <details id="tc-meses-cont">
+        <summary>Dólar por mes (se completa solo; se puede escribir a mano)</summary>
+        <p class="ayuda">Si escribís un valor, se usa ese en lugar del que trae el BCRA. Para volver al del BCRA, borralo y tocá «Traer del BCRA».</p>
+        <div class="tc-meses" id="tc-meses"></div>
+      </details>
+      <p class="ayuda">Dólar oficial mayorista de referencia del BCRA (Comunicación A 3500), de la API de estadísticas cambiarias.</p>
+    </section>
+
     <section class="tarjeta" id="sec-resultados" hidden>
-      <h2><span class="num">2</span> Resultados</h2>
-      <p class="ayuda">Último período informado por cada entidad. Los montos están en pesos (el BCRA los informa en miles). Tocá un renglón para ver el detalle.</p>
+      <h2><span class="num">3</span> Resultados</h2>
+      <p class="ayuda">Último período informado por cada entidad. Los montos están en pesos (el BCRA los informa en miles) y, debajo, en dólares. Tocá un renglón para ver el detalle.</p>
       <div class="solapas solapas-chicas" id="filtros"></div>
       <div class="bcra-tabla-cont">
         <table class="bcra-tabla">

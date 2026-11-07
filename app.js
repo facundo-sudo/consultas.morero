@@ -34,6 +34,113 @@
     return id;
   }
 
+  // ---------------------------------------------------------------------------
+  // Dólar: de hoy o de fin de cada mes (API de estadísticas cambiarias del BCRA), o cargado a mano
+  // ---------------------------------------------------------------------------
+  var CLAVE_TC = 'consulta-bcra.tc';
+  var tc = { modo: 'hoy', hoy: null, meses: {} }; // hoy/meses[AAAAMM]: { valor, fecha, manual }
+
+  function leerNumero(t) {
+    t = String(t == null ? '' : t).replace(/[^\d.,]/g, '');
+    if (!t) return 0;
+    if (t.indexOf(',') !== -1) t = t.replace(/\./g, '').replace(',', '.');
+    var n = Number(t);
+    return isFinite(n) && n > 0 ? n : 0;
+  }
+  function fmtTc(v) { return v ? v.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''; }
+  function guardarTc() { try { localStorage.setItem(CLAVE_TC, JSON.stringify(tc)); } catch (e) { /* nada */ } }
+  function cargarTc() {
+    try {
+      var t = JSON.parse(localStorage.getItem(CLAVE_TC) || 'null');
+      if (t) { tc.modo = t.modo === 'mes' ? 'mes' : 'hoy'; tc.hoy = t.hoy || null; tc.meses = t.meses || {}; }
+    } catch (e) { /* nada */ }
+  }
+  function aaaamm(fecha) { return fecha.slice(0, 4) + fecha.slice(5, 7); }
+  function isoFecha(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+
+  // Últimos 25 meses (del actual para atrás), como AAAAMM.
+  function ultimosMeses() {
+    var d = new Date(), lista = [];
+    d.setDate(1);
+    for (var i = 0; i < 25; i++) {
+      lista.push(d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0'));
+      d.setMonth(d.getMonth() - 1);
+    }
+    return lista;
+  }
+
+  // Dólar que corresponde a un período (AAAAMM) según el modo elegido. 0 si falta.
+  function tcPara(periodo) {
+    if (tc.modo === 'mes') {
+      var m = tc.meses[String(periodo)];
+      return m && m.valor ? m.valor : 0;
+    }
+    return tc.hoy && tc.hoy.valor ? tc.hoy.valor : 0;
+  }
+  function enDolares(miles, periodo) {
+    var v = tcPara(periodo);
+    return v ? Math.round((Number(miles) || 0) * 1000 / v) : null;
+  }
+  function fmtUsd(miles, periodo) {
+    var u = enDolares(miles, periodo);
+    if (u === null) return '<span class="usd" title="Falta el dólar' + (tc.modo === 'mes' ? ' de ' + fmtPeriodo(periodo) : ' de hoy') + '">US$ —</span>';
+    return '<span class="usd">US$ ' + u.toLocaleString('es-AR') + '</span>';
+  }
+  function fmtMonto(miles, periodo) { return fmtPesos(miles) + fmtUsd(miles, periodo); }
+
+  function usdDeDetalle(detalle) {
+    for (var i = 0; i < (detalle || []).length; i++) {
+      if (detalle[i].codigoMoneda === 'USD') return Number(detalle[i].tipoCotizacion) || 0;
+    }
+    return 0;
+  }
+
+  // Trae del BCRA el dólar de los últimos 25 meses. forzar: pisa también lo cargado a mano en «hoy».
+  function traerTc(forzar) {
+    var desde = ultimosMeses()[24].slice(0, 4) + '-' + ultimosMeses()[24].slice(4) + '-01';
+    $('tc-estado').textContent = 'Buscando el dólar en el BCRA…';
+    return fetch('api/bcra?tipo=cotizacion&desde=' + desde + '&hasta=' + isoFecha(new Date()), { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var lista = Array.isArray(j.results) ? j.results : (j.results ? [j.results] : []);
+        var ultimo = null, porMes = {};
+        lista.forEach(function (x) {
+          var v = usdDeDetalle(x.detalle), f = String(x.fecha || '').slice(0, 10);
+          if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(f)) return;
+          if (!ultimo || f > ultimo.fecha) ultimo = { valor: v, fecha: f };
+          var m = aaaamm(f);
+          if (!porMes[m] || f > porMes[m].fecha) porMes[m] = { valor: v, fecha: f };
+        });
+        if (!ultimo) throw new Error((j.errorMessages || [])[0] || 'sin datos');
+        if (forzar || !tc.hoy || !tc.hoy.manual) tc.hoy = { valor: ultimo.valor, fecha: ultimo.fecha, manual: false };
+        Object.keys(porMes).forEach(function (m) {
+          if (!tc.meses[m] || !tc.meses[m].manual) tc.meses[m] = { valor: porMes[m].valor, fecha: porMes[m].fecha, manual: false };
+        });
+        guardarTc();
+        renderTc();
+        renderTabla();
+      })
+      .catch(function () {
+        renderTc();
+        $('tc-estado').textContent = 'No se pudo traer el dólar del BCRA. Escribilo a mano' + (tc.modo === 'mes' ? ' en «Dólar por mes».' : '.') +
+          (tc.hoy && tc.hoy.valor ? ' Por ahora se usa el último guardado.' : '');
+      });
+  }
+
+  function renderTc() {
+    document.querySelectorAll('input[name="tc-modo"]').forEach(function (r) { r.checked = r.value === tc.modo; });
+    if (document.activeElement !== $('tc-hoy')) $('tc-hoy').value = tc.hoy && tc.hoy.valor ? fmtTc(tc.hoy.valor) : '';
+    $('tc-estado').textContent = !tc.hoy || !tc.hoy.valor ? 'Sin dólar cargado.' :
+      tc.hoy.manual ? 'Cargado a mano.' : 'Del BCRA, cotización del ' + fmtFecha(tc.hoy.fecha) + '.';
+    $('tc-meses').innerHTML = ultimosMeses().map(function (m) {
+      var x = tc.meses[m];
+      var titulo = x ? (x.manual ? 'Cargado a mano' : 'Del BCRA, cotización del ' + fmtFecha(x.fecha)) : 'Sin dato';
+      return '<label title="' + escapar(titulo) + '">' + fmtPeriodo(m) +
+        '<input type="text" inputmode="decimal" data-mes="' + m + '" value="' + (x && x.valor ? fmtTc(x.valor) : '') + '"' + (x && x.manual ? ' class="manual"' : '') + '></label>';
+    }).join('');
+    if (tc.modo === 'mes') $('tc-meses-cont').open = true;
+  }
+
   var resultados = [];
   var detener = false;
   var consultando = false;
@@ -142,12 +249,6 @@
       cats.map(function (c) {
         return '<button type="button" class="solapa" data-filtro="' + c.id + '" aria-selected="' + (filtro === c.id) + '">' + escapar(c.nombre) + '<span class="cuenta">' + hay[c.id] + '</span></button>';
       }).join('');
-  }
-
-  function agregarRenglones(renglones) {
-    var actual = $('cuits').value.replace(/\s+$/, '');
-    $('cuits').value = (actual ? actual + '\n' : '') + renglones.join('\n');
-    actualizarEstadoLista();
   }
 
   // ---------------------------------------------------------------------------
@@ -303,7 +404,7 @@
       h += '<h4>Deudas · período ' + escapar(fmtPeriodo(d.periodo)) + '</h4><div class="bcra-tabla-cont"><table><thead><tr>' +
         '<th>Entidad</th><th>Situación</th><th class="der">Monto</th><th class="der">Días de atraso</th><th>Observaciones</th></tr></thead><tbody>';
       d.entidades.forEach(function (e) {
-        h += '<tr><td>' + escapar(e.entidad) + '</td><td>' + etiquetaSit(Number(e.situacion)) + '</td><td class="der">' + fmtPesos(e.monto) +
+        h += '<tr><td>' + escapar(e.entidad) + '</td><td>' + etiquetaSit(Number(e.situacion)) + '</td><td class="der">' + fmtMonto(e.monto, d.periodo) +
           '</td><td class="der">' + (e.diasAtrasoPago != null ? escapar(e.diasAtrasoPago) : '') + '</td><td>' +
           marcasEntidad(e).map(function (x) { return '<span class="marca">' + escapar(x) + '</span>'; }).join('') + '</td></tr>';
       });
@@ -331,7 +432,7 @@
         h += '<h4>Historial (24 meses)</h4><div class="bcra-tabla-cont"><table><thead><tr>' +
           '<th>Período</th><th>Peor situación</th><th class="der">Deuda total</th><th class="der">Entidades</th></tr></thead><tbody>';
         r.historicas.forEach(function (p) {
-          h += '<tr><td>' + escapar(fmtPeriodo(p.periodo)) + '</td><td>' + etiquetaSit(p.peor) + '</td><td class="der">' + fmtPesos(p.total) +
+          h += '<tr><td>' + escapar(fmtPeriodo(p.periodo)) + '</td><td>' + etiquetaSit(p.peor) + '</td><td class="der">' + fmtMonto(p.total, p.periodo) +
             '</td><td class="der">' + p.cantidad + '</td></tr>';
         });
         h += '</tbody></table></div>';
@@ -344,6 +445,7 @@
 
   function renderTabla() {
     var tb = $('tabla-resultados');
+    if (!consultando && !resultados.length) return;
     renderFiltros();
     if (!resultados.length) { tb.innerHTML = '<tr><td colspan="8">Consultando…</td></tr>'; return; }
     tb.innerHTML = resultados.map(function (r, i) {
@@ -357,7 +459,7 @@
       var d = r.deudas;
       return '<tr class="bcra-fila" data-i="' + i + '" title="Ver detalle"><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre +
         '</td>' + cat + '<td class="nowrap">' + escapar(fmtPeriodo(d.periodo)) + '</td><td>' + etiquetaSit(d.peor) +
-        '</td><td class="der">' + (d.entidades.length ? fmtPesos(d.total) : '—') + '</td><td class="der">' + d.entidades.length +
+        '</td><td class="der">' + (d.entidades.length ? fmtMonto(d.total, d.periodo) : '—') + '</td><td class="der">' + d.entidades.length +
         '</td><td class="der">' + (r.cheques ? r.cheques.length : '—') + '</td></tr>' +
         '<tr class="bcra-detalle" data-det="' + i + '" hidden><td colspan="8">' + htmlDetalle(r) + '</td></tr>';
     }).join('');
@@ -380,6 +482,8 @@
         'Peor situación': r.error ? '' : d.peor || '',
         'Descripción': r.error ? 'Error: ' + r.error : nombreSit(d.peor),
         'Deuda total ($)': r.error ? '' : Math.round(d.total * 1000),
+        'Deuda total (US$)': r.error || !d.entidades.length ? '' : enDolares(d.total, d.periodo),
+        'Dólar usado': r.error || !d.entidades.length ? '' : tcPara(d.periodo) || '',
         Entidades: r.error ? '' : d.entidades.length,
         'Cheques rechazados': r.cheques ? r.cheques.length : ''
       };
@@ -390,6 +494,7 @@
         detalle.push({
           'Categoría': nombreCat(r.categoria), CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', 'Período': fmtPeriodo(r.deudas.periodo), Entidad: e.entidad,
           'Situación': Number(e.situacion), 'Descripción': nombreSit(Number(e.situacion)), 'Monto ($)': Math.round((Number(e.monto) || 0) * 1000),
+          'Monto (US$)': enDolares(e.monto, r.deudas.periodo), 'Dólar usado': tcPara(r.deudas.periodo) || '',
           'Días de atraso': e.diasAtrasoPago, Observaciones: marcasEntidad(e).join(', ')
         });
       });
@@ -409,7 +514,8 @@
       (r.historicas || []).forEach(function (p) {
         historial.push({
           'Categoría': nombreCat(r.categoria), CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', 'Período': fmtPeriodo(p.periodo), 'Peor situación': p.peor,
-          'Deuda total ($)': Math.round(p.total * 1000), Entidades: p.cantidad
+          'Deuda total ($)': Math.round(p.total * 1000), 'Deuda total (US$)': enDolares(p.total, p.periodo),
+          'Dólar usado': tcPara(p.periodo) || '', Entidades: p.cantidad
         });
       });
     });
@@ -423,31 +529,70 @@
     XLSX.writeFile(wb, 'Consulta BCRA ' + (filtro ? nombreCat(filtro) + ' ' : '') + f + '.xlsx');
   }
 
-  // Excel con CUIT: toma cualquier celda con 11 números y, si hay, el texto de la columna de nombre.
+  // Reconoce la categoría escrita en el Excel (columna o nombre de la hoja).
+  function categoriaDeTexto(t) {
+    t = String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!t.trim()) return '';
+    if (/provee/.test(t)) return 'proveedores';
+    if (/agronom/.test(t)) return 'agronomias';
+    if (/productor/.test(t)) return 'productores';
+    if (/grupo|siembra|pool/.test(t)) return 'grupos';
+    if (/vario|otro/.test(t)) return 'varios';
+    return '';
+  }
+
+  // Excel con CUIT: toma de cada fila la primera celda con 11 números y, si hay, el nombre.
+  // La categoría sale de una columna «Categoría»/«Tipo», o del nombre de la hoja;
+  // si no, va a la categoría elegida.
   function leerExcel(archivo) {
     var lector = new FileReader();
     lector.onload = function () {
       try {
         var wb = XLSX.read(new Uint8Array(lector.result), { type: 'array' });
-        var filas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-        var colNombre = -1;
-        if (filas.length) {
-          filas[0].forEach(function (t, j) {
-            if (colNombre === -1 && /nombre|cliente|raz[oó]n|denominaci/i.test(String(t))) colNombre = j;
+        var porCat = {}, total = 0;
+        var hojaUsada = false;
+        wb.SheetNames.forEach(function (nombreHoja, nh) {
+          var catHoja = categoriaDeTexto(nombreHoja);
+          // Si ninguna hoja tiene nombre de categoría, solo se lee la primera.
+          if (nh > 0 && !catHoja && !wb.SheetNames.some(function (n) { return categoriaDeTexto(n); })) return;
+          var filas = XLSX.utils.sheet_to_json(wb.Sheets[nombreHoja], { header: 1, defval: '' });
+          var colNombre = -1, colCat = -1;
+          (filas[0] || []).forEach(function (t, j) {
+            t = String(t);
+            if (colNombre === -1 && /nombre|cliente|raz[oó]n|denominaci|proveedor/i.test(t) && !/cuit/i.test(t)) colNombre = j;
+            if (colCat === -1 && /categor|^tipo|rubro|grupo/i.test(t.trim())) colCat = j;
           });
-        }
-        var renglones = [];
-        filas.forEach(function (fila) {
-          for (var j = 0; j < fila.length; j++) {
-            var d = soloNumeros(fila[j]);
-            if (d.length === 11) {
-              renglones.push(fmtCuit(d) + (colNombre >= 0 && fila[colNombre] ? '  ' + String(fila[colNombre]).trim() : ''));
-              break;
+          if (colNombre === colCat) colNombre = -1;
+          filas.forEach(function (fila) {
+            for (var j = 0; j < fila.length; j++) {
+              var d = soloNumeros(fila[j]);
+              if (d.length === 11 && j !== colCat) {
+                var cat = (colCat >= 0 && categoriaDeTexto(fila[colCat])) || catHoja || catActual;
+                (porCat[cat] = porCat[cat] || []).push(fmtCuit(d) + (colNombre >= 0 && fila[colNombre] ? '  ' + String(fila[colNombre]).trim() : ''));
+                total++;
+                hojaUsada = true;
+                break;
+              }
             }
-          }
+          });
         });
-        if (!renglones.length) { alert('No encontré CUIT (11 números) en ese Excel.'); return; }
-        agregarRenglones(renglones);
+        if (!hojaUsada) { alert('No encontré CUIT (11 números) en ese Excel.'); return; }
+        listas[catActual] = $('cuits').value;
+        var resumen = [];
+        CATEGORIAS.forEach(function (c) {
+          if (!porCat[c.id]) return;
+          var ya = {};
+          leerLista(listas[c.id] || '', c.id).forEach(function (x) { ya[x.cuit] = true; });
+          var nuevos = porCat[c.id].filter(function (r) { var d = soloNumeros(r).slice(0, 11); if (ya[d]) return false; ya[d] = true; return true; });
+          if (nuevos.length) {
+            var actual = String(listas[c.id] || '').replace(/\s+$/, '');
+            listas[c.id] = (actual ? actual + '\n' : '') + nuevos.join('\n');
+          }
+          resumen.push(c.nombre + ': ' + nuevos.length + (nuevos.length === 1 ? ' nuevo' : ' nuevos'));
+        });
+        $('cuits').value = listas[catActual] || '';
+        actualizarEstadoLista();
+        alert('Excel importado (' + total + ' CUIT leídos).\n' + resumen.join('\n'));
       } catch (e) {
         alert('No se pudo leer el Excel: ' + e.message);
       }
@@ -458,6 +603,34 @@
   // ---------------------------------------------------------------------------
   function iniciar() {
     cargarListas();
+    cargarTc();
+    renderTc();
+    traerTc(false);
+    document.querySelectorAll('input[name="tc-modo"]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        tc.modo = this.value;
+        guardarTc();
+        renderTc();
+        renderTabla();
+      });
+    });
+    $('tc-hoy').addEventListener('change', function () {
+      var v = leerNumero(this.value);
+      tc.hoy = v ? { valor: v, fecha: isoFecha(new Date()), manual: true } : null;
+      guardarTc();
+      renderTc();
+      renderTabla();
+    });
+    $('tc-meses').addEventListener('change', function (e) {
+      var m = e.target.getAttribute('data-mes');
+      if (!m) return;
+      var v = leerNumero(e.target.value);
+      if (v) tc.meses[m] = { valor: v, manual: true }; else delete tc.meses[m];
+      guardarTc();
+      renderTc();
+      renderTabla();
+    });
+    $('btn-tc').addEventListener('click', function () { traerTc(true); });
     $('cuits').value = listas[catActual] || '';
     actualizarEstadoLista();
     $('solapas').addEventListener('click', function (e) {
