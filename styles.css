@@ -129,8 +129,8 @@ label.etiqueta { display: block; }
 .cuadro .der { text-align: right; font-variant-numeric: tabular-nums; }
 .cuadro .c-fijo { position: sticky; z-index: 1; }
 .cuadro thead .c-fijo { z-index: 3; }
-.cuadro .c-fact { left: 0; min-width: 140px; }
-.cuadro .c-emp { left: 140px; min-width: 180px; max-width: 240px; white-space: normal; border-right: 2px solid var(--borde); }
+.cuadro .c-fact { left: 0; width: 150px; min-width: 150px; }
+.cuadro .c-emp { left: 150px; min-width: 180px; max-width: 240px; white-space: normal; border-right: 2px solid var(--borde); }
 .cuadro .c-emp .ayuda { display: block; margin: 0; font-size: .75rem; }
 .cuadro .c-fact input { width: 125px; padding: 4px 6px; border: 1px solid var(--borde); border-radius: 6px; font: inherit; }
 .cuadro .c-sube { color: var(--bordo); }
@@ -143,3 +143,6 @@ label.etiqueta { display: block; }
 .cuadro thead .c-final { z-index: 3; top: 0; color: var(--texto); }
 .cuadro .c-final-mes { font-weight: 400; color: var(--gris); }
 .cuadro thead .c-fact { white-space: normal; }
+.cuadro-cont { cursor: grab; user-select: none; }
+.cuadro-cont.arrastrando { cursor: grabbing; }
+.cuadro-cont input { cursor: text; user-select: text; }

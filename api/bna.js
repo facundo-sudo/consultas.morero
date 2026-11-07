@@ -84,8 +84,25 @@ async function delMes(aaaamm) {
   const ultimo = new Date(Date.UTC(anio, mes, 0));
   const hoyUtc = new Date();
   const tope = ultimo > hoyUtc ? hoyUtc : ultimo;
-  const fecha = String(tope.getUTCDate()).padStart(2, '0') + '/' + String(tope.getUTCMonth() + 1).padStart(2, '0') + '/' + tope.getUTCFullYear();
-  const html = await bajar(BASE + '/Cotizador/HistoricoPrincipales?id=divisas&fecha=' + encodeURIComponent(fecha) + '&filtroEuro=0&filtroDolar=1');
+  const d = tope.getUTCDate(), m = tope.getUTCMonth() + 1, y = tope.getUTCFullYear();
+  const fechas = [String(d).padStart(2, '0') + '/' + String(m).padStart(2, '0') + '/' + y, d + '/' + m + '/' + y];
+  const prefijo = aaaamm.slice(0, 4) + '-' + aaaamm.slice(4) + '-';
+  let ultimoHtml = '', ultimoError = null;
+  for (const fecha of fechas) {
+    try {
+      const html = await bajar(BASE + '/Cotizador/HistoricoPrincipales?id=divisas&fecha=' + encodeURIComponent(fecha) + '&filtroEuro=0&filtroDolar=1');
+      ultimoHtml = html;
+      const delMesPedido = leerHistorico(html).filter(function (c) { return c.fecha.indexOf(prefijo) === 0; })
+        .sort(function (a, b) { return b.fecha.localeCompare(a.fecha); });
+      if (delMesPedido.length) return delMesPedido[0];
+    } catch (e) { ultimoError = e; }
+  }
+  const err = ultimoError || new Error('El BNA no devolvió cotizaciones de Divisas para ' + aaaamm.slice(4) + '/' + aaaamm.slice(0, 4) + '.');
+  err.html = ultimoHtml;
+  throw err;
+}
+
+function leerHistorico(html) {
   const cotis = [];
   filas(html).forEach(function (f) {
     if (!f.some(esDolar)) return;
@@ -99,11 +116,7 @@ async function delMes(aaaamm) {
     });
     if (fe && nums.length >= 2) cotis.push({ fecha: fe, compra: nums[0], venta: nums[1] });
   });
-  const prefijo = aaaamm.slice(0, 4) + '-' + aaaamm.slice(4) + '-';
-  const delMesPedido = cotis.filter(function (c) { return c.fecha.indexOf(prefijo) === 0; })
-    .sort(function (a, b) { return b.fecha.localeCompare(a.fecha); });
-  if (!delMesPedido.length) throw new Error('El BNA no devolvió cotizaciones de Divisas para ' + aaaamm.slice(4) + '/' + aaaamm.slice(0, 4) + '.');
-  return delMesPedido[0];
+  return cotis;
 }
 
 module.exports = async function (req, res) {
@@ -119,6 +132,9 @@ module.exports = async function (req, res) {
     }
   } catch (e) {
     res.setHeader('Cache-Control', 'no-store');
-    res.status(502).json({ error: e && e.message ? e.message : String(e) });
+    const salida = { error: e && e.message ? e.message : String(e) };
+    // /api/bna?mes=AAAAMM&ver=1 muestra el principio de lo que respondió el BNA, para revisar el formato.
+    if (req.query && req.query.ver && e && e.html !== undefined) salida.respuesta = limpiar(e.html).slice(0, 1500);
+    res.status(502).json(salida);
   }
 };

@@ -135,7 +135,7 @@
     });
     if (!faltan.length) return Promise.resolve();
     trayendoMeses = true;
-    var fallaron = [];
+    var fallaron = [], motivo = '';
     var i = 0;
     $('tc-meses-estado').textContent = 'Buscando el dólar de ' + faltan.length + (faltan.length === 1 ? ' mes' : ' meses') + ' en el Banco Nación…';
     function siguiente() {
@@ -144,14 +144,15 @@
       return pedirBna(m).then(function (j) {
         tc.meses[m] = { valor: j.venta, fecha: j.fecha, manual: false };
         guardarTc();
-      }, function () { fallaron.push(m); }).then(siguiente);
+      }, function (e) { fallaron.push(m); if (!motivo) motivo = e && e.message ? e.message : ''; }).then(siguiente);
     }
     return siguiente().then(function () {
       trayendoMeses = false;
       renderTc();
       renderTabla();
       $('tc-meses-estado').textContent = fallaron.length
-        ? 'No se pudo traer el dólar de ' + fallaron.map(fmtPeriodo).join(', ') + '. Escribilo a mano en «Dólar por mes».'
+        ? 'No se pudo traer del Banco Nación el dólar de ' + fallaron.map(fmtPeriodo).join(', ') + (motivo ? ' (motivo: ' + motivo + ')' : '') +
+          '. Mientras tanto, el cuadro mensual usa el dólar de hoy. Para el valor exacto, escribilo a mano en «Dólar por mes».'
         : '';
     });
   }
@@ -501,6 +502,7 @@
         (errores ? ' (' + errores + ' con error).' : '.') + ' ' + new Date().toLocaleString('es-AR');
       consultando = false;
       traerMeses(false);
+      $('btn-nueva-arriba').hidden = false;
       $('btn-consultar').disabled = false;
       $('btn-consultar-todas').disabled = false;
       $('btn-detener').hidden = true;
@@ -667,6 +669,9 @@
     return y + String(m).padStart(2, '0');
   }
   function tcDelMes(p) { var x = tc.meses[String(p)]; return x && x.valor ? x.valor : 0; }
+  // Para el cuadro: el dólar del mes; si falta, el de hoy (y se avisa).
+  function tcCuadro(p) { return tcDelMes(p) || (tc.hoy && tc.hoy.valor) || 0; }
+  function tcEsDeHoy(p) { return !tcDelMes(p) && !!(tc.hoy && tc.hoy.valor); }
 
   function datosCuadro(lista, cantMeses) {
     var todos = {};
@@ -679,8 +684,8 @@
       var celdas = meses.map(function (m) {
         var p = porMes[m];
         if (!p) return null;
-        var pesos = Math.round(p.total * 1000), t = tcDelMes(m), usd = t ? pesos / t : null;
-        var ant = porMes[mesAnterior(m)], tAnt = tcDelMes(mesAnterior(m));
+        var pesos = Math.round(p.total * 1000), t = tcCuadro(m), usd = t ? pesos / t : null;
+        var ant = porMes[mesAnterior(m)], tAnt = tcCuadro(mesAnterior(m));
         var usdAnt = ant && tAnt ? ant.total * 1000 / tAnt : null;
         return {
           pesos: pesos, usd: usd, peor: p.peor,
@@ -709,13 +714,15 @@
     if (!lista.length) return;
     var dc = datosCuadro(lista, Number($('cuadro-meses').value) || 8);
     var faltan = dc.meses.filter(function (m) { return !tcDelMes(m); });
+    var sinNinguno = dc.meses.filter(function (m) { return !tcCuadro(m); });
     var ultimoMes = dc.meses[dc.meses.length - 1];
     var h = '<table class="cuadro"><thead><tr><th rowspan="3" class="c-fijo c-fact">Facturación aprox. (US$)</th><th rowspan="3" class="c-fijo c-emp">Empresa</th>';
     dc.meses.forEach(function (m) { h += '<th colspan="3" class="c-mes">' + MESES_LARGOS[Number(m.slice(4)) - 1] + ' ' + m.slice(0, 4) + '</th>'; });
     h += '<th rowspan="3" class="c-final">Deuda sobre<br>facturación<br><span class="c-final-mes">(' + fmtPeriodo(ultimoMes) + ')</span></th></tr><tr>';
     dc.meses.forEach(function (m) {
-      var t = tcDelMes(m);
-      h += '<th colspan="3" class="c-tc">' + (t ? 'US$ 1 = $ ' + fmtTc(t) : '<span class="c-falta">Falta el dólar</span>') + '</th>';
+      var t = tcCuadro(m);
+      h += '<th colspan="3" class="c-tc">' + (!t ? '<span class="c-falta">Falta el dólar</span>' :
+        'US$ 1 = $ ' + fmtTc(t) + (tcEsDeHoy(m) ? ' <span class="c-falta" title="Falta el dólar de este mes: se usa el de hoy">(de hoy)</span>' : '')) + '</th>';
     });
     h += '</tr><tr>';
     dc.meses.forEach(function () { h += '<th class="c-sub">Pesos</th><th class="c-sub">Eq. dólares</th><th class="c-sub c-fin" title="Contra la deuda del mes anterior">Var. mes ant.</th>'; });
@@ -736,8 +743,43 @@
     });
     h += '</tbody></table>';
     $('cuadro').innerHTML = h;
-    $('cuadro-estado').textContent = faltan.length
-      ? 'Falta el dólar de ' + faltan.map(fmtPeriodo).join(', ') + ': se busca solo en el Banco Nación; si no aparece, cargalo en «Dólar por mes».' : '';
+    $('cuadro-estado').textContent = sinNinguno.length
+      ? 'Falta el dólar: cargá el de hoy o el de cada mes en «Pasar a dólares».'
+      : faltan.length ? 'Sin dólar del Banco Nación para ' + faltan.map(fmtPeriodo).join(', ') + ': se usa el de hoy (marcado «de hoy»). Para el valor exacto, cargalo en «Dólar por mes».' : '';
+    ajustarFijas();
+  }
+
+  // La columna «Empresa» queda pegada justo al lado de «Facturación», midiendo su ancho real.
+  function ajustarFijas() {
+    var primera = document.querySelector('#cuadro thead .c-fact');
+    if (!primera) return;
+    var ancho = primera.getBoundingClientRect().width;
+    document.querySelectorAll('#cuadro .c-emp').forEach(function (c) { c.style.left = ancho + 'px'; });
+  }
+
+  // Mover el cuadro arrastrando con el mouse (la «manito»).
+  function arrastrable(el) {
+    var activo = false, x0 = 0, y0 = 0, sl = 0, st = 0, movio = false;
+    el.addEventListener('mousedown', function (e) {
+      if (e.button !== 0 || e.target.closest('input, select, button, a')) return;
+      activo = true; movio = false;
+      x0 = e.clientX; y0 = e.clientY; sl = el.scrollLeft; st = el.scrollTop;
+      el.classList.add('arrastrando');
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', function (e) {
+      if (!activo) return;
+      var dx = e.clientX - x0, dy = e.clientY - y0;
+      if (Math.abs(dx) + Math.abs(dy) > 3) movio = true;
+      el.scrollLeft = sl - dx;
+      el.scrollTop = st - dy;
+    });
+    window.addEventListener('mouseup', function () {
+      if (!activo) return;
+      activo = false;
+      el.classList.remove('arrastrando');
+    });
+    el.addEventListener('click', function (e) { if (movio) { e.stopPropagation(); e.preventDefault(); movio = false; } }, true);
   }
 
   function hojaCuadro(lista) {
@@ -748,7 +790,7 @@
     var merges = [{ s: { r: 1, c: 0 }, e: { r: 2, c: 0 } }, { s: { r: 1, c: 1 }, e: { r: 2, c: 1 } }, { s: { r: 1, c: 2 }, e: { r: 2, c: 2 } }];
     dc.meses.forEach(function (m, k) {
       var c0 = 3 + k * 3;
-      f1.push('Dólar BNA', tcDelMes(m) || '', '');
+      f1.push(tcEsDeHoy(m) ? 'Dólar BNA (de hoy)' : 'Dólar BNA', tcCuadro(m) || '', '');
       f2.push(MESES_LARGOS[Number(m.slice(4)) - 1] + ' ' + m.slice(0, 4), '', '');
       f3.push('PESOS', 'EQ. DOLARES', 'VARIACION MES ANT.');
       merges.push({ s: { r: 1, c: c0 }, e: { r: 1, c: c0 + 2 } });
@@ -958,6 +1000,8 @@
     cargarTc();
     cargarFacturacion();
     $('cuadro-meses').addEventListener('change', renderCuadro);
+    arrastrable($('cuadro'));
+    window.addEventListener('resize', ajustarFijas);
     $('cuadro').addEventListener('change', function (e) {
       var c = e.target.getAttribute('data-fact');
       if (!c) return;
@@ -1036,6 +1080,27 @@
     $('btn-consultar-todas').addEventListener('click', function () { consultar(true); });
     $('btn-detener').addEventListener('click', function () { detener = true; $('progreso').textContent = 'Deteniendo…'; });
     $('btn-excel').addEventListener('click', bajarExcel);
+    function nuevaConsulta() {
+      if (consultando) { detener = true; }
+      resultados = [];
+      filtro = '';
+      CATEGORIAS.forEach(function (c) { leerLista(listas[c.id] || '', c.id).forEach(function (x) { delete marcados[clave(c.id, x.cuit)]; }); });
+      guardarMarcados();
+      $('buscar').value = '';
+      $('tabla-resultados').innerHTML = '';
+      $('filtros').innerHTML = '';
+      $('cuadro').innerHTML = '';
+      $('sec-resultados').hidden = true;
+      $('sec-cuadro').hidden = true;
+      $('progreso').hidden = true;
+      $('progreso').textContent = '';
+      $('btn-nueva-arriba').hidden = true;
+      renderLista();
+      renderSolapas();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    $('btn-nueva').addEventListener('click', nuevaConsulta);
+    $('btn-nueva-arriba').addEventListener('click', nuevaConsulta);
     var tip = $('tip');
     document.addEventListener('mousemove', function (e) {
       var t = e.target.closest && e.target.closest('[data-tip]');

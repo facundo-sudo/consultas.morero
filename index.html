@@ -50,6 +50,7 @@
         <button type="button" class="boton boton-primario" id="btn-consultar">Consultar los tildados</button>
         <button type="button" class="boton" id="btn-consultar-todas">Consultar los tildados de todas las categorías</button>
         <button type="button" class="boton" id="btn-detener" hidden>Detener</button>
+        <button type="button" class="boton boton-texto" id="btn-nueva-arriba" hidden>Nueva consulta</button>
       </div>
       <p id="progreso" class="estado" hidden></p>
     </section>
@@ -111,12 +112,13 @@
             </select>
           </label>
         </div>
-        <p class="ayuda">Deuda de cada empresa por mes, en pesos y en dólares (dólar Banco Nación de cada mes), variación contra la deuda del mes anterior (en dólares) y, al final, qué porcentaje de la facturación aproximada representa la deuda del último mes. Escribí la facturación en dólares, por ejemplo «400/430 MILL»: se usa el número más alto. Variación: verde baja, bordó sube. Al final, fondo amarillo: 50% o más de la facturación; rojo: 100% o más.</p>
+        <p class="ayuda">Deuda de cada empresa por mes, en pesos y en dólares (dólar Banco Nación de cada mes), variación contra la deuda del mes anterior (en dólares) y, al final, qué porcentaje de la facturación aproximada representa la deuda del último mes. Escribí la facturación en dólares, por ejemplo «400/430 MILL»: se usa el número más alto. Variación: verde baja, bordó sube. Al final, fondo amarillo: 50% o más de la facturación; rojo: 100% o más. Para moverte, arrastrá el cuadro con el mouse.</p>
         <div class="bcra-tabla-cont cuadro-cont" id="cuadro"></div>
         <p id="cuadro-estado" class="ayuda"></p>
       </div>
       <div class="botones">
         <button type="button" class="boton" id="btn-excel">Bajar en Excel</button>
+        <button type="button" class="boton" id="btn-nueva">Nueva consulta</button>
       </div>
       <details class="ayuda bcra-ref">
         <summary>¿Qué significa cada situación?</summary>
