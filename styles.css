@@ -1,4 +1,5 @@
 :root {
+  --s1: #2f8f4e; --s2: #d9a400; --s3: #e06c00; --s4: #c62828; --s5: #7a1f1f;
   --bordo: #8F131C; --bordo-oscuro: #6f0e15; --bordo-claro: #f7e8e9;
   --gris: #5B5B5F; --gris-claro: #ececed; --borde: #d6d6d9; --fondo: #f5f5f6;
   --blanco: #ffffff; --texto: #222226; --aviso: #fff4d6; --aviso-borde: #e0b43a;
@@ -74,3 +75,25 @@ label.etiqueta { display: block; }
 .tc-meses input.manual { border-color: var(--aviso-borde); background: var(--aviso); }
 #tc-meses-cont summary { cursor: pointer; font-weight: 600; color: var(--bordo); margin-top: 8px; }
 .usd { display: block; color: var(--gris); font-size: .85rem; }
+.evo-grid { width: auto !important; font-size: .8rem !important; }
+.evo-grid th, .evo-grid td { text-align: center !important; padding: 4px 6px !important; white-space: nowrap; }
+.evo-grid tbody th { text-align: left !important; }
+.evo-grid td.celda-sit { color: #fff; font-weight: 700; border: 2px solid var(--blanco); }
+.celda-sit.s1 { background: var(--s1); } .celda-sit.s2 { background: var(--s2); color: #222 !important; }
+.celda-sit.s3 { background: var(--s3); } .celda-sit.s4 { background: var(--s4); } .celda-sit.s5 { background: var(--s5); }
+.evo-grafico { background: var(--blanco); border: 1px solid var(--borde); border-radius: 8px; padding: 8px; margin-top: 10px; }
+.evo-svg { display: block; width: 100%; height: auto; }
+.evo-grilla { stroke: var(--gris-claro); stroke-width: 1; }
+.evo-base { stroke: var(--borde); stroke-width: 1; }
+.evo-anio { stroke: var(--borde); stroke-width: 1; stroke-dasharray: 3 3; }
+.evo-eje { fill: var(--gris); font-size: 11px; font-family: inherit; }
+.evo-anio-txt { font-weight: 600; }
+.evo-barra.s1 { fill: var(--s1); } .evo-barra.s2 { fill: var(--s2); } .evo-barra.s3 { fill: var(--s3); }
+.evo-barra.s4 { fill: var(--s4); } .evo-barra.s5 { fill: var(--s5); }
+.evo-hit { fill: transparent; }
+.evo-hit:hover { fill: rgba(0,0,0,.04); }
+.evo-leyenda { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: .82rem; color: var(--gris); }
+.evo-leyenda i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.evo-leyenda i.s1 { background: var(--s1); } .evo-leyenda i.s2 { background: var(--s2); } .evo-leyenda i.s3 { background: var(--s3); }
+.evo-leyenda i.s4 { background: var(--s4); } .evo-leyenda i.s5 { background: var(--s5); }
+.tip { position: fixed; z-index: 10; pointer-events: none; background: var(--blanco); color: var(--texto); border: 1px solid var(--borde); border-radius: 8px; padding: 8px 10px; font-size: .85rem; box-shadow: 0 4px 14px rgba(0,0,0,.12); max-width: 280px; }

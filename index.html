@@ -35,7 +35,7 @@
       </div>
       <div class="bcra-opciones">
         <label class="check"><input type="checkbox" id="op-cheques" checked> Cheques rechazados</label>
-        <label class="check"><input type="checkbox" id="op-historicas"> Historial de los últimos 24 meses</label>
+        <label class="check"><input type="checkbox" id="op-historicas" checked> Historial y gráfico de los últimos 24 meses</label>
       </div>
       <div class="botones">
         <button type="button" class="boton boton-primario" id="btn-consultar">Consultar esta categoría</button>
@@ -81,6 +81,7 @@
               <th>Categoría</th>
               <th>Período</th>
               <th>Peor situación</th>
+              <th title="Puntaje propio de 1 a 999 con datos del BCRA (no es el score de Nosis)">Puntaje</th>
               <th class="der">Deuda total</th>
               <th class="der">Entidades</th>
               <th class="der">Cheques rech.</th>
@@ -102,11 +103,13 @@
           <li><strong>Irrecuperable</strong>: atraso de más de un año.</li>
           <li><strong>Irrecuperable por disposición técnica</strong>.</li>
         </ol>
+        <p><strong>Puntaje propio</strong> (1 a 999): lo calcula esta página con los datos públicos del BCRA. <em>No es el score de Nosis ni de otro buró</em>, que son privados. Parte de la situación actual (1: 850, 2: 600, 3: 400, 4: 250, 5 o 6: 100); resta por meses en situación 2 o peor en los últimos 24 meses, por cheques rechazados (más si no se pagaron), proceso judicial, refinanciaciones y recategorización; suma un poco por cada mes en situación normal. Colores: verde 750 o más, amarillo 550–749, naranja 350–549, rojo menos de 350.</p>
         <p>Fuente: API pública de la Central de Deudores del BCRA (api.bcra.gob.ar).</p>
       </details>
     </section>
   </main>
 
+  <div id="tip" class="tip" hidden></div>
   <script src="vendor/xlsx.full.min.js"></script>
   <script src="app.js"></script>
 </body>

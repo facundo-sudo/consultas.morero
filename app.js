@@ -342,8 +342,63 @@
         total += Number(e.monto) || 0;
         if ((Number(e.situacion) || 0) > peor) peor = Number(e.situacion);
       });
-      return { periodo: p.periodo, peor: peor, total: total, cantidad: (p.entidades || []).length };
+      var jud = (p.entidades || []).some(function (e) { return e.procesoJud || e.situacionJuridica; });
+      return { periodo: p.periodo, peor: peor, total: total, cantidad: (p.entidades || []).length, jud: jud };
     }).sort(function (a, b) { return String(b.periodo).localeCompare(String(a.periodo)); });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Puntaje propio (1 a 999) con datos públicos del BCRA. NO es el score de Nosis ni de otro buró.
+  // ---------------------------------------------------------------------------
+  var BASE_SIT = { 0: 750, 1: 850, 2: 600, 3: 400, 4: 250, 5: 100, 6: 100 };
+
+  // peor: situación del mes; anteriores: peor situación de los meses previos (hasta 24);
+  // cheques: lista de cheques rechazados; marcas: { jud, irrec, refi, recat }.
+  function calcPuntaje(peor, anteriores, cheques, marcas) {
+    var hayAlgo = peor > 0 || anteriores.some(function (s) { return s > 0; }) || (cheques && cheques.length);
+    if (!hayAlgo) return null;
+    var p = BASE_SIT[peor] != null ? BASE_SIT[peor] : 100;
+    var castigo = 0, premio = 0;
+    anteriores.forEach(function (s) {
+      if (s >= 4) castigo += 25; else if (s === 3) castigo += 15; else if (s === 2) castigo += 8;
+      else if (s === 1) premio += 4;
+    });
+    p += -Math.min(castigo, 250) + Math.min(premio, 96);
+    if (cheques && cheques.length) {
+      var impagos = cheques.filter(function (c) { return !c.fechaPago; }).length;
+      p -= Math.min(impagos * 60, 300) + Math.min((cheques.length - impagos) * 15, 60);
+    }
+    marcas = marcas || {};
+    if (marcas.jud) p -= 150;
+    if (marcas.irrec) p -= 150;
+    if (marcas.refi) p -= 40;
+    if (marcas.recat) p -= 40;
+    return Math.max(1, Math.min(999, Math.round(p)));
+  }
+
+  function puntaje(r) {
+    if (r.error || !r.deudas) return null;
+    var ents = r.deudas.entidades || [];
+    var marcas = {
+      jud: ents.some(function (e) { return e.procesoJud || e.situacionJuridica; }),
+      irrec: ents.some(function (e) { return e.irrecDisposicionTecnica; }),
+      refi: ents.some(function (e) { return e.refinanciaciones; }),
+      recat: ents.some(function (e) { return e.recategorizacionOblig; })
+    };
+    var anteriores = (r.historicas || []).filter(function (p) { return p.periodo < r.deudas.periodo; }).map(function (p) { return p.peor; });
+    return calcPuntaje(r.deudas.peor, anteriores, r.cheques, marcas);
+  }
+
+  // Puntaje de cada mes del historial (sin cheques: el BCRA no los informa por mes).
+  function puntajeMes(hist, i) {
+    var anteriores = hist.slice(i + 1, i + 25).map(function (p) { return p.peor; });
+    return calcPuntaje(hist[i].peor, anteriores, null, { jud: hist[i].jud });
+  }
+
+  function bandaPuntaje(n) { return n == null ? 0 : n >= 750 ? 1 : n >= 550 ? 2 : n >= 350 ? 3 : 5; }
+  function etiquetaPuntaje(n) {
+    return n == null ? '<span class="sit sit-0" title="Sin deudas ni cheques informados">—</span>'
+      : '<span class="sit sit-' + bandaPuntaje(n) + '">' + n + '</span>';
   }
 
   function consultarUno(item, opciones) {
@@ -425,6 +480,75 @@
     return m;
   }
 
+  var MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+  function pasoRedondo(max) {
+    var bruto = max / 4, pot = Math.pow(10, Math.floor(Math.log10(bruto || 1)));
+    var n = bruto / pot;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * pot;
+  }
+  function fmtCorto(v) {
+    if (v >= 1e9) return (v / 1e9).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' mil M';
+    if (v >= 1e6) return (v / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' M';
+    if (v >= 1e3) return (v / 1e3).toLocaleString('es-AR', { maximumFractionDigits: 0 }) + ' mil';
+    return String(v);
+  }
+
+  function htmlEvolucion(r) {
+    var hist = r.historicas || [];             // del más nuevo al más viejo
+    var asc = hist.slice().reverse();          // del más viejo al más nuevo
+    var n = asc.length;
+    // Grilla por mes (como los informes comerciales): puntaje, bancos y situación.
+    var h = '<h4>Evolución de los últimos 24 meses</h4><div class="bcra-tabla-cont"><table class="evo-grid"><thead><tr><th></th>';
+    asc.forEach(function (p) { var s = String(p.periodo); h += '<th>' + s.slice(4) + '<br>' + s.slice(2, 4) + '</th>'; });
+    h += '</tr></thead><tbody><tr><th>Puntaje</th>';
+    asc.forEach(function (p, k) { var v = puntajeMes(hist, n - 1 - k); h += '<td>' + (v == null ? '–' : v) + '</td>'; });
+    h += '</tr><tr><th>Bancos</th>';
+    asc.forEach(function (p) { h += '<td>' + (p.cantidad || '–') + '</td>'; });
+    h += '</tr><tr><th>Situación</th>';
+    asc.forEach(function (p) {
+      h += p.peor ? '<td class="celda-sit s' + Math.min(p.peor, 5) + '" title="' + escapar(nombreSit(p.peor)) + '">' + p.peor + '</td>' : '<td>–</td>';
+    });
+    h += '</tr></tbody></table></div>';
+
+    // Gráfico de barras: deuda total por mes, color según la peor situación del mes.
+    var W = 720, H = 250, iz = 70, de = 10, ar = 22, ab = 26;
+    var max = 0;
+    asc.forEach(function (p) { max = Math.max(max, p.total * 1000); });
+    if (!max) return h + '<p>No tuvo deudas en los últimos 24 meses.</p>';
+    var paso = pasoRedondo(max), tope = Math.ceil(max / paso) * paso;
+    var alto = H - ar - ab, ancho = W - iz - de, slot = ancho / Math.max(n, 1), bw = Math.max(4, Math.min(22, slot * 0.6));
+    var y = function (v) { return ar + alto - (v / tope) * alto; };
+    var s = '<svg class="evo-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Deuda total por mes, últimos 24 meses">';
+    for (var t = 0; t <= tope + 1e-6; t += paso) {
+      s += '<line class="evo-grilla" x1="' + iz + '" x2="' + (W - de) + '" y1="' + y(t) + '" y2="' + y(t) + '"/>' +
+        '<text class="evo-eje" x="' + (iz - 8) + '" y="' + (y(t) + 4) + '" text-anchor="end">' + escapar(fmtCorto(t)) + '</text>';
+    }
+    asc.forEach(function (p, k) {
+      var cx = iz + slot * k + slot / 2, mes = Number(String(p.periodo).slice(4)), anio = String(p.periodo).slice(0, 4);
+      if (mes === 1 || k === 0) {
+        var xl = iz + slot * k + 1;
+        s += '<line class="evo-anio" x1="' + xl + '" x2="' + xl + '" y1="' + (ar - 14) + '" y2="' + (ar + alto) + '"/>' +
+          '<text class="evo-eje evo-anio-txt" x="' + (xl + 4) + '" y="' + (ar - 4) + '">' + anio + '</text>';
+      }
+      s += '<text class="evo-eje" x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle">' + MESES[mes - 1] + '</text>';
+      var v = p.total * 1000;
+      if (v > 0) {
+        var yt = y(v), x0 = cx - bw / 2, rr = Math.min(4, bw / 2, ar + alto - yt);
+        s += '<path class="evo-barra s' + Math.min(p.peor || 1, 5) + '" d="M' + x0 + ',' + (ar + alto) + 'V' + (yt + rr) + 'Q' + x0 + ',' + yt + ' ' + (x0 + rr) + ',' + yt +
+          'H' + (x0 + bw - rr) + 'Q' + (x0 + bw) + ',' + yt + ' ' + (x0 + bw) + ',' + (yt + rr) + 'V' + (ar + alto) + 'Z"/>';
+      }
+      var usd = enDolares(p.total, p.periodo);
+      var tip = fmtPeriodo(p.periodo) + '|Deuda: ' + fmtPesos(p.total) + (usd !== null ? ' (US$ ' + usd.toLocaleString('es-AR') + ')' : '') +
+        '|Situación: ' + (p.peor ? p.peor + ' · ' + nombreSit(p.peor) : 'sin deuda') + '|Bancos: ' + p.cantidad;
+      s += '<rect class="evo-hit" x="' + (iz + slot * k) + '" y="' + ar + '" width="' + slot + '" height="' + alto + '" data-tip="' + escapar(tip) + '"/>';
+    });
+    s += '<line class="evo-base" x1="' + iz + '" x2="' + (W - de) + '" y1="' + (ar + alto) + '" y2="' + (ar + alto) + '"/></svg>';
+    h += '<div class="evo-grafico">' + s + '</div><div class="evo-leyenda">' +
+      [1, 2, 3, 4, 5].map(function (k) { return '<span><i class="s' + k + '"></i>' + k + ' · ' + escapar(SITUACIONES[k]) + '</span>'; }).join('') + '</div>';
+    return h;
+  }
+
   function htmlDetalle(r) {
     var h = '';
     var d = r.deudas || { entidades: [] };
@@ -455,15 +579,19 @@
         h += '<h4>Cheques rechazados</h4><p>No tiene cheques rechazados informados.</p>';
       }
     }
+    var pj = puntaje(r);
+    h += '<h4>Puntaje propio</h4><p>' + etiquetaPuntaje(pj) + ' ' + (pj == null ? 'Sin deudas ni cheques informados: no hay datos para calcularlo.' :
+      'de 1 a 999, calculado con los datos del BCRA' + (r.historicas ? '' : ' (sin historial: tildá «Historial y gráfico» para que sea más preciso)') + '.') + '</p>';
     if (r.historicas) {
       if (r.historicas.length) {
-        h += '<h4>Historial (24 meses)</h4><div class="bcra-tabla-cont"><table><thead><tr>' +
+        h += htmlEvolucion(r);
+        h += '<details><summary class="ayuda">Ver el historial en tabla</summary><div class="bcra-tabla-cont"><table><thead><tr>' +
           '<th>Período</th><th>Peor situación</th><th class="der">Deuda total</th><th class="der">Entidades</th></tr></thead><tbody>';
         r.historicas.forEach(function (p) {
           h += '<tr><td>' + escapar(fmtPeriodo(p.periodo)) + '</td><td>' + etiquetaSit(p.peor) + '</td><td class="der">' + fmtMonto(p.total, p.periodo) +
             '</td><td class="der">' + p.cantidad + '</td></tr>';
         });
-        h += '</tbody></table></div>';
+        h += '</tbody></table></div></details>';
       } else {
         h += '<h4>Historial (24 meses)</h4><p>Sin datos históricos.</p>';
       }
@@ -475,21 +603,21 @@
     var tb = $('tabla-resultados');
     if (!consultando && !resultados.length) return;
     renderFiltros();
-    if (!resultados.length) { tb.innerHTML = '<tr><td colspan="8">Consultando…</td></tr>'; return; }
+    if (!resultados.length) { tb.innerHTML = '<tr><td colspan="9">Consultando…</td></tr>'; return; }
     tb.innerHTML = resultados.map(function (r, i) {
       if (filtro && r.categoria !== filtro) return '';
       var cat = '<td class="nowrap">' + escapar(nombreCat(r.categoria)) + '</td>';
       var nombre = escapar(r.nombre || r.referencia || '');
       if (r.nombre && r.referencia && r.referencia !== r.nombre) nombre += '<br><span class="ayuda">' + escapar(r.referencia) + '</span>';
       if (r.error) {
-        return '<tr><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre + '</td>' + cat + '<td colspan="5"><span class="sit sit-err">Error</span> ' + escapar(r.error) + '</td></tr>';
+        return '<tr><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre + '</td>' + cat + '<td colspan="6"><span class="sit sit-err">Error</span> ' + escapar(r.error) + '</td></tr>';
       }
       var d = r.deudas;
       return '<tr class="bcra-fila" data-i="' + i + '" title="Ver detalle"><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre +
         '</td>' + cat + '<td class="nowrap">' + escapar(fmtPeriodo(d.periodo)) + '</td><td>' + etiquetaSit(d.peor) +
-        '</td><td class="der">' + (d.entidades.length ? fmtMonto(d.total, d.periodo) : '—') + '</td><td class="der">' + d.entidades.length +
+        '</td><td>' + etiquetaPuntaje(puntaje(r)) + '</td><td class="der">' + (d.entidades.length ? fmtMonto(d.total, d.periodo) : '—') + '</td><td class="der">' + d.entidades.length +
         '</td><td class="der">' + (r.cheques ? r.cheques.length : '—') + '</td></tr>' +
-        '<tr class="bcra-detalle" data-det="' + i + '" hidden><td colspan="8">' + htmlDetalle(r) + '</td></tr>';
+        '<tr class="bcra-detalle" data-det="' + i + '" hidden><td colspan="9">' + htmlDetalle(r) + '</td></tr>';
     }).join('');
   }
 
@@ -509,6 +637,7 @@
         'Período': fmtPeriodo(d.periodo),
         'Peor situación': r.error ? '' : d.peor || '',
         'Descripción': r.error ? 'Error: ' + r.error : nombreSit(d.peor),
+        'Puntaje propio': puntaje(r) == null ? '' : puntaje(r),
         'Deuda total ($)': r.error ? '' : Math.round(d.total * 1000),
         'Deuda total (US$)': r.error || !d.entidades.length ? '' : enDolares(d.total, d.periodo),
         'Dólar usado': r.error || !d.entidades.length ? '' : tcPara(d.periodo) || '',
@@ -541,7 +670,7 @@
     elegidos.forEach(function (r) {
       (r.historicas || []).forEach(function (p) {
         historial.push({
-          'Categoría': nombreCat(r.categoria), CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', 'Período': fmtPeriodo(p.periodo), 'Peor situación': p.peor,
+          'Categoría': nombreCat(r.categoria), CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', 'Período': fmtPeriodo(p.periodo), 'Peor situación': p.peor, 'Puntaje propio': puntajeMes(r.historicas, r.historicas.indexOf(p)),
           'Deuda total ($)': Math.round(p.total * 1000), 'Deuda total (US$)': enDolares(p.total, p.periodo),
           'Dólar usado': tcPara(p.periodo) || '', Entidades: p.cantidad
         });
@@ -686,6 +815,19 @@
     $('btn-consultar-todas').addEventListener('click', function () { consultar(true); });
     $('btn-detener').addEventListener('click', function () { detener = true; $('progreso').textContent = 'Deteniendo…'; });
     $('btn-excel').addEventListener('click', bajarExcel);
+    var tip = $('tip');
+    document.addEventListener('mousemove', function (e) {
+      var t = e.target.closest && e.target.closest('[data-tip]');
+      if (!t) { tip.hidden = true; return; }
+      var partes = t.getAttribute('data-tip').split('|');
+      tip.innerHTML = '<strong>' + escapar(partes[0]) + '</strong>' + partes.slice(1).map(function (x) { return '<br>' + escapar(x); }).join('');
+      tip.hidden = false;
+      var x = e.clientX + 14, yy = e.clientY + 14;
+      if (x + tip.offsetWidth > window.innerWidth - 8) x = e.clientX - tip.offsetWidth - 14;
+      if (yy + tip.offsetHeight > window.innerHeight - 8) yy = e.clientY - tip.offsetHeight - 14;
+      tip.style.left = x + 'px';
+      tip.style.top = yy + 'px';
+    });
     $('tabla-resultados').addEventListener('click', function (e) {
       if (e.target.closest('.bcra-detalle')) return;
       var fila = e.target.closest('.bcra-fila');
