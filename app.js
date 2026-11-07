@@ -684,12 +684,16 @@
         var usdAnt = ant && tAnt ? ant.total * 1000 / tAnt : null;
         return {
           pesos: pesos, usd: usd, peor: p.peor,
-          variacion: usd !== null && usdAnt ? usd / usdAnt - 1 : null,
-          sobreFact: usd !== null && fact ? usd / fact : null
+          variacion: usd !== null && usdAnt ? usd / usdAnt - 1 : null
         };
       });
       var ultima = celdas[celdas.length - 1];
-      return { r: r, celdas: celdas, orden: ultima ? ultima.pesos : -1 };
+      // Deuda del último mes sobre la facturación (sin deuda ese mes: 0%).
+      var usdFinal = !ultima ? 0 : ultima.usd;
+      return {
+        r: r, celdas: celdas, orden: ultima ? ultima.pesos : -1,
+        sobreFact: fact && usdFinal !== null ? usdFinal / fact : null
+      };
     }).sort(function (x, y) { return y.orden - x.orden; });
     return { meses: meses, filas: filasC };
   }
@@ -705,28 +709,30 @@
     if (!lista.length) return;
     var dc = datosCuadro(lista, Number($('cuadro-meses').value) || 8);
     var faltan = dc.meses.filter(function (m) { return !tcDelMes(m); });
+    var ultimoMes = dc.meses[dc.meses.length - 1];
     var h = '<table class="cuadro"><thead><tr><th rowspan="3" class="c-fijo c-fact">Facturación aprox. (US$)</th><th rowspan="3" class="c-fijo c-emp">Empresa</th>';
-    dc.meses.forEach(function (m) { h += '<th colspan="4" class="c-mes">' + MESES_LARGOS[Number(m.slice(4)) - 1] + ' ' + m.slice(0, 4) + '</th>'; });
-    h += '</tr><tr>';
+    dc.meses.forEach(function (m) { h += '<th colspan="3" class="c-mes">' + MESES_LARGOS[Number(m.slice(4)) - 1] + ' ' + m.slice(0, 4) + '</th>'; });
+    h += '<th rowspan="3" class="c-final">Deuda sobre<br>facturación<br><span class="c-final-mes">(' + fmtPeriodo(ultimoMes) + ')</span></th></tr><tr>';
     dc.meses.forEach(function (m) {
       var t = tcDelMes(m);
-      h += '<th colspan="4" class="c-tc">' + (t ? 'US$ 1 = $ ' + fmtTc(t) : '<span class="c-falta">Falta el dólar</span>') + '</th>';
+      h += '<th colspan="3" class="c-tc">' + (t ? 'US$ 1 = $ ' + fmtTc(t) : '<span class="c-falta">Falta el dólar</span>') + '</th>';
     });
     h += '</tr><tr>';
-    dc.meses.forEach(function () { h += '<th class="c-sub">Pesos</th><th class="c-sub">Eq. dólares</th><th class="c-sub">Variación</th><th class="c-sub c-fin">Deuda s/ fact.</th>'; });
+    dc.meses.forEach(function () { h += '<th class="c-sub">Pesos</th><th class="c-sub">Eq. dólares</th><th class="c-sub c-fin" title="Contra la deuda del mes anterior">Var. mes ant.</th>'; });
     h += '</tr></thead><tbody>';
     dc.filas.forEach(function (f) {
       h += '<tr><td class="c-fijo c-fact"><input type="text" data-fact="' + f.r.cuit + '" value="' + escapar(facturacion[f.r.cuit] || '') + '" placeholder="Ej.: 400/430 MILL"></td>' +
         '<td class="c-fijo c-emp"><strong>' + escapar(f.r.nombre || f.r.referencia || fmtCuit(f.r.cuit)) + '</strong><span class="ayuda">' + fmtCuit(f.r.cuit) + '</span></td>';
       f.celdas.forEach(function (c) {
-        if (!c) { h += '<td class="der">–</td><td></td><td></td><td class="c-fin"></td>'; return; }
-        var v = c.variacion, sf = c.sobreFact;
+        if (!c) { h += '<td class="der">–</td><td></td><td class="c-fin"></td>'; return; }
+        var v = c.variacion;
         h += '<td class="der">$ ' + c.pesos.toLocaleString('es-AR') + '</td>' +
           '<td class="der">' + (c.usd === null ? '–' : 'US$ ' + Math.round(c.usd).toLocaleString('es-AR')) + '</td>' +
-          '<td class="der ' + (v > 0 ? 'c-sube' : v < 0 ? 'c-baja' : '') + '">' + (v === null ? '' : (v > 0 ? '▲ ' : v < 0 ? '▼ ' : '') + fmtPct(Math.abs(v), 1)) + '</td>' +
-          '<td class="der c-fin ' + (sf === null ? '' : sf >= 1 ? 'c-alto' : sf >= 0.5 ? 'c-medio' : '') + '">' + fmtPct(sf) + '</td>';
+          '<td class="der c-fin ' + (v > 0 ? 'c-sube' : v < 0 ? 'c-baja' : '') + '">' + (v === null ? '' : (v > 0 ? '▲ ' : v < 0 ? '▼ ' : '') + fmtPct(Math.abs(v), 1)) + '</td>';
       });
-      h += '</tr>';
+      var sf = f.sobreFact;
+      h += '<td class="der c-final ' + (sf === null ? '' : sf >= 1 ? 'c-alto' : sf >= 0.5 ? 'c-medio' : '') + '">' +
+        (sf === null ? (facturacionUsd(facturacion[f.r.cuit]) ? '' : '<span class="ayuda">Falta facturación</span>') : fmtPct(sf)) + '</td></tr>';
     });
     h += '</tbody></table>';
     $('cuadro').innerHTML = h;
@@ -737,36 +743,43 @@
   function hojaCuadro(lista) {
     var dc = datosCuadro(lista, Number($('cuadro-meses').value) || 8);
     var fmtP = '"$" #,##0', fmtU = '"US$" #,##0', fmtV = '0.0%', fmtF = '0%';
+    var ultimoMes = dc.meses[dc.meses.length - 1] || '';
     var f1 = ['', '', ''], f2 = ['FACTURACION APROX.', 'EMPRESA', 'CUIT'], f3 = ['', '', ''];
     var merges = [{ s: { r: 1, c: 0 }, e: { r: 2, c: 0 } }, { s: { r: 1, c: 1 }, e: { r: 2, c: 1 } }, { s: { r: 1, c: 2 }, e: { r: 2, c: 2 } }];
     dc.meses.forEach(function (m, k) {
-      var c0 = 3 + k * 4;
-      f1.push('Dólar BNA', tcDelMes(m) || '', '', '');
-      f2.push(MESES_LARGOS[Number(m.slice(4)) - 1] + ' ' + m.slice(0, 4), '', '', '');
-      f3.push('PESOS', 'EQ. DOLARES', 'VARIACION', 'DEUDA SOBRE FACT. APROX.');
-      merges.push({ s: { r: 1, c: c0 }, e: { r: 1, c: c0 + 3 } });
+      var c0 = 3 + k * 3;
+      f1.push('Dólar BNA', tcDelMes(m) || '', '');
+      f2.push(MESES_LARGOS[Number(m.slice(4)) - 1] + ' ' + m.slice(0, 4), '', '');
+      f3.push('PESOS', 'EQ. DOLARES', 'VARIACION MES ANT.');
+      merges.push({ s: { r: 1, c: c0 }, e: { r: 1, c: c0 + 2 } });
     });
+    var cFinal = 3 + dc.meses.length * 3;
+    f1.push('');
+    f2.push('DEUDA SOBRE FACT. APROX. (' + fmtPeriodo(ultimoMes) + ')');
+    f3.push('');
+    merges.push({ s: { r: 1, c: cFinal }, e: { r: 2, c: cFinal } });
     var aoa = [f1, f2, f3];
     dc.filas.forEach(function (f) {
       var fila = [facturacion[f.r.cuit] || '', f.r.nombre || f.r.referencia || '', fmtCuit(f.r.cuit)];
       f.celdas.forEach(function (c) {
-        if (!c) fila.push('', '', '', '');
-        else fila.push(c.pesos, c.usd === null ? '' : c.usd, c.variacion === null ? '' : c.variacion, c.sobreFact === null ? '' : c.sobreFact);
+        if (!c) fila.push('', '', '');
+        else fila.push(c.pesos, c.usd === null ? '' : c.usd, c.variacion === null ? '' : c.variacion);
       });
+      fila.push(f.sobreFact === null ? '' : f.sobreFact);
       aoa.push(fila);
     });
     var ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!merges'] = merges;
-    ws['!cols'] = [{ wch: 18 }, { wch: 28 }, { wch: 15 }].concat(dc.meses.reduce(function (acc) { return acc.concat([{ wch: 18 }, { wch: 15 }, { wch: 10 }, { wch: 12 }]); }, []));
-    var formatos = [fmtP, fmtU, fmtV, fmtF];
+    ws['!cols'] = [{ wch: 18 }, { wch: 28 }, { wch: 15 }].concat(dc.meses.reduce(function (acc) { return acc.concat([{ wch: 18 }, { wch: 15 }, { wch: 12 }]); }, []), [{ wch: 20 }]);
+    var formatos = [fmtP, fmtU, fmtV];
     for (var R = 3; R < aoa.length; R++) {
       for (var C = 3; C < aoa[R].length; C++) {
         var cel = ws[XLSX.utils.encode_cell({ r: R, c: C })];
-        if (cel && cel.t === 'n') cel.z = formatos[(C - 3) % 4];
+        if (cel && cel.t === 'n') cel.z = C === cFinal ? fmtF : formatos[(C - 3) % 3];
       }
     }
     dc.meses.forEach(function (m, k) {
-      var cel = ws[XLSX.utils.encode_cell({ r: 0, c: 4 + k * 4 })];
+      var cel = ws[XLSX.utils.encode_cell({ r: 0, c: 4 + k * 3 })];
       if (cel && cel.t === 'n') cel.z = '"$" #,##0.00';
     });
     return ws;

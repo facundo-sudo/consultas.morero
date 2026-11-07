@@ -138,3 +138,8 @@ label.etiqueta { display: block; }
 .cuadro td.c-medio { background: #fff4d6; }
 .cuadro td.c-alto { background: #f9d3d6; color: var(--bordo-oscuro); font-weight: 700; }
 .cuadro .c-falta { color: var(--bordo); font-weight: 600; }
+.cuadro .c-final { position: sticky; right: 0; z-index: 1; min-width: 110px; border-left: 2px solid var(--borde); text-align: center; }
+.cuadro td.c-final { text-align: right; font-weight: 700; }
+.cuadro thead .c-final { z-index: 3; top: 0; color: var(--texto); }
+.cuadro .c-final-mes { font-weight: 400; color: var(--gris); }
+.cuadro thead .c-fact { white-space: normal; }
