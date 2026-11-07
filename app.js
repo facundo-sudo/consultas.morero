@@ -9,6 +9,8 @@
   var CLAVE_LISTAS = 'consulta-bcra.listas';
   var CLAVE_CAT = 'consulta-bcra.categoria';
   var CLAVE_MARCADOS = 'consulta-bcra.marcados';
+  var CLAVE_NOMBRES = 'consulta-bcra.nombres';
+  var nombresBcra = {};  // cuit -> denominación que informa el BCRA
   var marcados = {};    // 'categoria:cuit' -> true (tildados para consultar)
   var CATEGORIAS = [
     { id: 'proveedores', nombre: 'Proveedores' },
@@ -245,8 +247,49 @@
     var qn = soloNumeros(q);
     return leerLista(listas[catActual] || '', catActual).filter(function (x) {
       if (!q) return true;
-      var nom = x.referencia.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      var nom = (x.referencia + ' ' + (nombresBcra[x.cuit] || '')).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       return nom.indexOf(q) !== -1 || (qn.length >= 3 && x.cuit.indexOf(qn) !== -1);
+    });
+  }
+
+  function guardarNombres() { try { localStorage.setItem(CLAVE_NOMBRES, JSON.stringify(nombresBcra)); } catch (e) { /* nada */ } }
+  function cargarNombres() { try { nombresBcra = JSON.parse(localStorage.getItem(CLAVE_NOMBRES) || '{}') || {}; } catch (e) { nombresBcra = {}; } }
+
+  // Nombre en la lista: el del BCRA y, si escribiste otro, también ese.
+  function htmlNombreLista(x) {
+    var bcra = nombresBcra[x.cuit] || '', propio = x.referencia || '';
+    if (!bcra && !propio) return '<span class="l-sin">Sin nombre (tocá «Traer nombres»)</span>';
+    if (!bcra) return escapar(propio);
+    if (!propio || propio.toLowerCase() === bcra.toLowerCase()) return escapar(bcra);
+    return escapar(bcra) + ' <span class="l-ref">· ' + escapar(propio) + '</span>';
+  }
+
+  // Busca en el BCRA el nombre de los CUIT de la categoría que todavía no lo tienen.
+  var trayendoNombres = false;
+  function traerNombres() {
+    if (trayendoNombres || consultando) return;
+    var faltan = leerLista(listas[catActual] || '', catActual).filter(function (x) { return !nombresBcra[x.cuit]; });
+    if (!faltan.length) { $('nombres-estado').textContent = 'Todos los CUIT de ' + nombreCat(catActual) + ' ya tienen nombre.'; return; }
+    trayendoNombres = true;
+    $('btn-nombres').disabled = true;
+    var i = 0, sinDatos = 0;
+    function siguiente() {
+      if (i >= faltan.length) return Promise.resolve();
+      var x = faltan[i++];
+      $('nombres-estado').textContent = 'Buscando nombres: ' + i + ' de ' + faltan.length + '…';
+      return pedir(x.cuit, 'deudas').then(function (res) {
+        if (res && res.denominacion) { nombresBcra[x.cuit] = res.denominacion; guardarNombres(); renderLista(); }
+        else return pedir(x.cuit, 'cheques').then(function (r2) {
+          if (r2 && r2.denominacion) { nombresBcra[x.cuit] = r2.denominacion; guardarNombres(); renderLista(); } else sinDatos++;
+        });
+      }).catch(function () { sinDatos++; }).then(function () { return esperar(PAUSA_MS); }).then(siguiente);
+    }
+    siguiente().then(function () {
+      trayendoNombres = false;
+      $('btn-nombres').disabled = false;
+      $('nombres-estado').textContent = sinDatos
+        ? sinDatos + (sinDatos === 1 ? ' CUIT no figura' : ' CUIT no figuran') + ' en el BCRA (sin deudas ni cheques): no informa su nombre. Podés escribirlo al lado del CUIT en «Agregar o editar CUIT».'
+        : 'Listo: nombres actualizados.';
     });
   }
 
@@ -258,7 +301,7 @@
       : !vis.length ? '<li class="l-vacio">Ninguno coincide con la búsqueda.</li>'
       : vis.map(function (x) {
         return '<li><label><input type="checkbox" data-cuit="' + x.cuit + '"' + (marcados[clave(catActual, x.cuit)] ? ' checked' : '') + '>' +
-          '<span class="l-cuit">' + fmtCuit(x.cuit) + '</span><span class="l-nombre">' + escapar(x.referencia) + '</span>' +
+          '<span class="l-cuit">' + fmtCuit(x.cuit) + '</span><span class="l-nombre">' + htmlNombreLista(x) + '</span>' +
           (x.valido ? '' : '<span class="l-malo" title="El dígito verificador no coincide">CUIT dudoso</span>') + '</label></li>';
       }).join('');
     var n = todos.filter(function (x) { return marcados[clave(catActual, x.cuit)]; }).length;
@@ -491,6 +534,7 @@
       $('progreso').textContent = 'Consultando ' + (i + 1) + ' de ' + lista.length + ': ' + fmtCuit(item.cuit) + ' (' + nombreCat(item.categoria) + ')…';
       return consultarUno(item, opciones).then(function (r) {
         resultados.push(r);
+        if (r.nombre && nombresBcra[r.cuit] !== r.nombre) { nombresBcra[r.cuit] = r.nombre; guardarNombres(); renderLista(); }
         renderTabla();
         i++;
         return i < lista.length && !detener ? esperar(PAUSA_MS).then(siguiente) : null;
@@ -1004,6 +1048,7 @@
   // ---------------------------------------------------------------------------
   function iniciar() {
     cargarListas();
+    cargarNombres();
     cargarTc();
     cargarFacturacion();
     $('cuadro-meses').addEventListener('change', renderCuadro);
@@ -1078,6 +1123,7 @@
     }
     $('btn-marcar-todos').addEventListener('click', function () { marcarVisibles(true); });
     $('btn-marcar-ninguno').addEventListener('click', function () { marcarVisibles(false); });
+    $('btn-nombres').addEventListener('click', traerNombres);
     $('btn-limpiar').addEventListener('click', function () {
       if ($('cuits').value && !confirm('¿Borrar todos los CUIT de ' + nombreCat(catActual) + '?')) return;
       $('cuits').value = '';
