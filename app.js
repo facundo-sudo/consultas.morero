@@ -1,0 +1,411 @@
+/*
+ * Consulta BCRA: toma una lista de CUIT y consulta, uno por uno, la Central de Deudores
+ * del BCRA a través de /api/bcra (función de Vercel, ver api/bcra.js).
+ */
+(function () {
+  'use strict';
+
+  var CLAVE_TEXTO = 'consulta-bcra.cuits';
+  var PAUSA_MS = 350; // entre consultas, para no saturar la API del BCRA
+
+  var SITUACIONES = {
+    1: 'Normal',
+    2: 'Riesgo bajo',
+    3: 'Riesgo medio',
+    4: 'Riesgo alto',
+    5: 'Irrecuperable',
+    6: 'Irrecuperable (disp. técnica)'
+  };
+
+  var resultados = [];
+  var detener = false;
+  var consultando = false;
+
+  function $(id) { return document.getElementById(id); }
+  function soloNumeros(v) { return String(v == null ? '' : v).replace(/\D/g, ''); }
+  function fmtCuit(d) { return d.slice(0, 2) + '-' + d.slice(2, 10) + '-' + d.slice(10); }
+  function escapar(t) {
+    return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function esperar(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function fmtPesos(miles) {
+    return '$ ' + Math.round((Number(miles) || 0) * 1000).toLocaleString('es-AR');
+  }
+  function fmtPeriodo(p) {
+    p = String(p || '');
+    return p.length === 6 ? p.slice(4) + '/' + p.slice(0, 4) : p;
+  }
+  function fmtFecha(f) {
+    if (!f) return '';
+    var m = String(f).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? m[3] + '/' + m[2] + '/' + m[1] : String(f);
+  }
+  function nombreSit(n) { return SITUACIONES[n] || (n ? 'Situación ' + n : 'Sin deudas'); }
+  function etiquetaSit(n) {
+    return '<span class="sit sit-' + (SITUACIONES[n] ? n : 0) + '">' + (n ? n + ' · ' : '') + escapar(nombreSit(n)) + '</span>';
+  }
+
+  // Dígito verificador del CUIT/CUIL.
+  function cuitValido(d) {
+    if (!/^\d{11}$/.test(d)) return false;
+    var pesos = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2], suma = 0;
+    for (var i = 0; i < 10; i++) suma += Number(d[i]) * pesos[i];
+    var v = 11 - (suma % 11);
+    if (v === 11) v = 0;
+    if (v === 10) v = 9;
+    return v === Number(d[10]);
+  }
+
+  // Lee el texto: cada renglón con un CUIT (11 números, con o sin guiones) y, opcional, un nombre.
+  function leerLista() {
+    var vistos = {}, lista = [];
+    $('cuits').value.split(/\r?\n/).forEach(function (renglon) {
+      var m = renglon.match(/(\d{2})[\s.\-\/]?(\d{8})[\s.\-\/]?(\d)(?!\d)/);
+      if (!m) return;
+      var d = m[1] + m[2] + m[3];
+      if (vistos[d]) return;
+      vistos[d] = true;
+      var nombre = renglon.replace(m[0], '').replace(/^[\s,;:\t\-–]+|[\s,;:\t\-–]+$/g, '');
+      lista.push({ cuit: d, referencia: nombre, valido: cuitValido(d) });
+    });
+    return lista;
+  }
+
+  function actualizarEstadoLista() {
+    var lista = leerLista();
+    var malos = lista.filter(function (x) { return !x.valido; });
+    var t = lista.length ? lista.length + ' CUIT para consultar.' : 'Todavía no hay CUIT cargados.';
+    if (malos.length) t += ' Ojo: ' + malos.map(function (x) { return fmtCuit(x.cuit); }).join(', ') + (malos.length === 1 ? ' no parece un CUIT válido' : ' no parecen CUIT válidos') + ' (dígito verificador).';
+    $('cuits-estado').textContent = t;
+    try { localStorage.setItem(CLAVE_TEXTO, $('cuits').value); } catch (e) { /* nada */ }
+  }
+
+  function agregarRenglones(renglones) {
+    var actual = $('cuits').value.replace(/\s+$/, '');
+    $('cuits').value = (actual ? actual + '\n' : '') + renglones.join('\n');
+    actualizarEstadoLista();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Consulta a la API
+  // ---------------------------------------------------------------------------
+  function pedir(cuit, tipo, intento) {
+    intento = intento || 1;
+    return fetch('api/bcra?tipo=' + tipo + '&cuit=' + cuit, { headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        return r.json().catch(function () { return { status: r.status }; }).then(function (j) {
+          if (r.status === 429 && intento < 4) return esperar(1500 * intento).then(function () { return pedir(cuit, tipo, intento + 1); });
+          if ((r.status === 502 || r.status === 503 || r.status === 504) && intento < 3) return esperar(1000).then(function () { return pedir(cuit, tipo, intento + 1); });
+          // 404: el BCRA no tiene datos para ese CUIT (no figura con deudas / cheques).
+          if (r.status === 404) return { sinDatos: true, mensaje: (j.errorMessages || [])[0] || '' };
+          if (!r.ok) {
+            var msg = (j.errorMessages || [])[0];
+            if (!msg && r.status === 404) msg = 'Sin datos';
+            throw new Error(msg || 'Error ' + r.status + ' al consultar el BCRA.');
+          }
+          return j.results || {};
+        });
+      }, function () {
+        throw new Error('No se pudo conectar. La consulta funciona en la página publicada en Vercel (no abriendo el archivo en la PC).');
+      });
+  }
+
+  function resumirDeudas(res) {
+    var r = { nombre: '', periodo: '', peor: 0, total: 0, entidades: [] };
+    if (!res || res.sinDatos) return r;
+    r.nombre = res.denominacion || '';
+    var periodos = (res.periodos || []).slice().sort(function (a, b) { return String(b.periodo).localeCompare(String(a.periodo)); });
+    if (!periodos.length) return r;
+    r.periodo = periodos[0].periodo;
+    r.entidades = periodos[0].entidades || [];
+    r.entidades.forEach(function (e) {
+      r.total += Number(e.monto) || 0;
+      if ((Number(e.situacion) || 0) > r.peor) r.peor = Number(e.situacion);
+    });
+    return r;
+  }
+
+  function resumirCheques(res) {
+    var lista = [];
+    if (!res || res.sinDatos) return lista;
+    (res.causales || []).forEach(function (c) {
+      (c.entidades || []).forEach(function (e) {
+        (e.detalle || []).forEach(function (d) {
+          lista.push({
+            causal: c.causal, entidad: e.entidad, nro: d.nroCheque, fecha: d.fechaRechazo, monto: d.monto,
+            fechaPago: d.fechaPago, fechaPagoMulta: d.fechaPagoMulta, estadoMulta: d.estadoMulta,
+            procesoJud: d.procesoJud, enRevision: d.enRevision
+          });
+        });
+      });
+    });
+    return lista;
+  }
+
+  function resumirHistoricas(res) {
+    if (!res || res.sinDatos) return [];
+    return (res.periodos || []).map(function (p) {
+      var peor = 0, total = 0;
+      (p.entidades || []).forEach(function (e) {
+        total += Number(e.monto) || 0;
+        if ((Number(e.situacion) || 0) > peor) peor = Number(e.situacion);
+      });
+      return { periodo: p.periodo, peor: peor, total: total, cantidad: (p.entidades || []).length };
+    }).sort(function (a, b) { return String(b.periodo).localeCompare(String(a.periodo)); });
+  }
+
+  function consultarUno(item, opciones) {
+    var r = { cuit: item.cuit, referencia: item.referencia, error: '' };
+    return pedir(item.cuit, 'deudas').then(function (res) {
+      r.deudas = resumirDeudas(res);
+      r.nombre = r.deudas.nombre;
+      if (!opciones.cheques) return;
+      return esperar(PAUSA_MS).then(function () { return pedir(item.cuit, 'cheques'); }).then(function (res2) {
+        r.cheques = resumirCheques(res2);
+        if (!r.nombre && res2 && res2.denominacion) r.nombre = res2.denominacion;
+      });
+    }).then(function () {
+      if (!opciones.historicas) return;
+      return esperar(PAUSA_MS).then(function () { return pedir(item.cuit, 'historicas'); }).then(function (res3) {
+        r.historicas = resumirHistoricas(res3);
+        if (!r.nombre && res3 && res3.denominacion) r.nombre = res3.denominacion;
+      });
+    }).catch(function (e) {
+      r.error = e && e.message ? e.message : String(e);
+    }).then(function () { return r; });
+  }
+
+  function consultar() {
+    if (consultando) return;
+    var lista = leerLista();
+    if (!lista.length) { alert('Pegá al menos un CUIT (11 números).'); return; }
+    var opciones = { cheques: $('op-cheques').checked, historicas: $('op-historicas').checked };
+    consultando = true;
+    detener = false;
+    resultados = [];
+    $('btn-consultar').disabled = true;
+    $('btn-detener').hidden = false;
+    $('progreso').hidden = false;
+    $('sec-resultados').hidden = false;
+    renderTabla();
+
+    var i = 0;
+    function siguiente() {
+      if (detener || i >= lista.length) return Promise.resolve();
+      var item = lista[i];
+      $('progreso').textContent = 'Consultando ' + (i + 1) + ' de ' + lista.length + ': ' + fmtCuit(item.cuit) + '…';
+      return consultarUno(item, opciones).then(function (r) {
+        resultados.push(r);
+        renderTabla();
+        i++;
+        return i < lista.length && !detener ? esperar(PAUSA_MS).then(siguiente) : null;
+      });
+    }
+    siguiente().then(function () {
+      var errores = resultados.filter(function (r) { return r.error; }).length;
+      $('progreso').textContent = (detener ? 'Consulta detenida. ' : 'Listo. ') + resultados.length + ' de ' + lista.length + ' consultados' +
+        (errores ? ' (' + errores + ' con error).' : '.') + ' ' + new Date().toLocaleString('es-AR');
+      consultando = false;
+      $('btn-consultar').disabled = false;
+      $('btn-detener').hidden = true;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tabla de resultados
+  // ---------------------------------------------------------------------------
+  function marcasEntidad(e) {
+    var m = [];
+    if (e.refinanciaciones) m.push('Refinanciada');
+    if (e.recategorizacionOblig) m.push('Recategorización obligatoria');
+    if (e.situacionJuridica) m.push('Situación jurídica');
+    if (e.irrecDisposicionTecnica) m.push('Irrec. disp. técnica');
+    if (e.enRevision) m.push('En revisión');
+    if (e.procesoJud) m.push('Proceso judicial');
+    return m;
+  }
+
+  function htmlDetalle(r) {
+    var h = '';
+    var d = r.deudas || { entidades: [] };
+    if (d.entidades.length) {
+      h += '<h4>Deudas · período ' + escapar(fmtPeriodo(d.periodo)) + '</h4><div class="bcra-tabla-cont"><table><thead><tr>' +
+        '<th>Entidad</th><th>Situación</th><th class="der">Monto</th><th class="der">Días de atraso</th><th>Observaciones</th></tr></thead><tbody>';
+      d.entidades.forEach(function (e) {
+        h += '<tr><td>' + escapar(e.entidad) + '</td><td>' + etiquetaSit(Number(e.situacion)) + '</td><td class="der">' + fmtPesos(e.monto) +
+          '</td><td class="der">' + (e.diasAtrasoPago != null ? escapar(e.diasAtrasoPago) : '') + '</td><td>' +
+          marcasEntidad(e).map(function (x) { return '<span class="marca">' + escapar(x) + '</span>'; }).join('') + '</td></tr>';
+      });
+      h += '</tbody></table></div>';
+    } else {
+      h += '<h4>Deudas</h4><p>No figura con deudas informadas en la Central de Deudores.</p>';
+    }
+    if (r.cheques) {
+      if (r.cheques.length) {
+        h += '<h4>Cheques rechazados (' + r.cheques.length + ')</h4><div class="bcra-tabla-cont"><table><thead><tr>' +
+          '<th>Causal</th><th>Entidad</th><th>N° cheque</th><th>Fecha rechazo</th><th class="der">Monto</th><th>Pagado</th><th>Multa</th></tr></thead><tbody>';
+        r.cheques.forEach(function (c) {
+          h += '<tr><td>' + escapar(c.causal) + '</td><td>' + escapar(c.entidad) + '</td><td>' + escapar(c.nro) + '</td><td class="nowrap">' +
+            escapar(fmtFecha(c.fecha)) + '</td><td class="der">$ ' + (Number(c.monto) || 0).toLocaleString('es-AR') + '</td><td class="nowrap">' +
+            (c.fechaPago ? escapar(fmtFecha(c.fechaPago)) : 'No') + '</td><td>' + escapar(c.estadoMulta || '') +
+            (c.fechaPagoMulta ? ' (' + escapar(fmtFecha(c.fechaPagoMulta)) + ')' : '') + '</td></tr>';
+        });
+        h += '</tbody></table></div>';
+      } else {
+        h += '<h4>Cheques rechazados</h4><p>No tiene cheques rechazados informados.</p>';
+      }
+    }
+    if (r.historicas) {
+      if (r.historicas.length) {
+        h += '<h4>Historial (24 meses)</h4><div class="bcra-tabla-cont"><table><thead><tr>' +
+          '<th>Período</th><th>Peor situación</th><th class="der">Deuda total</th><th class="der">Entidades</th></tr></thead><tbody>';
+        r.historicas.forEach(function (p) {
+          h += '<tr><td>' + escapar(fmtPeriodo(p.periodo)) + '</td><td>' + etiquetaSit(p.peor) + '</td><td class="der">' + fmtPesos(p.total) +
+            '</td><td class="der">' + p.cantidad + '</td></tr>';
+        });
+        h += '</tbody></table></div>';
+      } else {
+        h += '<h4>Historial (24 meses)</h4><p>Sin datos históricos.</p>';
+      }
+    }
+    return h;
+  }
+
+  function renderTabla() {
+    var tb = $('tabla-resultados');
+    if (!resultados.length) { tb.innerHTML = '<tr><td colspan="7">Consultando…</td></tr>'; return; }
+    tb.innerHTML = resultados.map(function (r, i) {
+      var nombre = escapar(r.nombre || r.referencia || '');
+      if (r.nombre && r.referencia && r.referencia !== r.nombre) nombre += '<br><span class="ayuda">' + escapar(r.referencia) + '</span>';
+      if (r.error) {
+        return '<tr><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre + '</td><td colspan="5"><span class="sit sit-err">Error</span> ' + escapar(r.error) + '</td></tr>';
+      }
+      var d = r.deudas;
+      return '<tr class="bcra-fila" data-i="' + i + '" title="Ver detalle"><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre +
+        '</td><td class="nowrap">' + escapar(fmtPeriodo(d.periodo)) + '</td><td>' + etiquetaSit(d.peor) +
+        '</td><td class="der">' + (d.entidades.length ? fmtPesos(d.total) : '—') + '</td><td class="der">' + d.entidades.length +
+        '</td><td class="der">' + (r.cheques ? r.cheques.length : '—') + '</td></tr>' +
+        '<tr class="bcra-detalle" data-det="' + i + '" hidden><td colspan="7">' + htmlDetalle(r) + '</td></tr>';
+    }).join('');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Excel
+  // ---------------------------------------------------------------------------
+  function bajarExcel() {
+    if (!resultados.length) { alert('Primero hay que consultar.'); return; }
+    var resumen = resultados.map(function (r) {
+      var d = r.deudas || { entidades: [] };
+      return {
+        CUIT: fmtCuit(r.cuit),
+        Nombre: r.nombre || '',
+        Referencia: r.referencia || '',
+        'Período': fmtPeriodo(d.periodo),
+        'Peor situación': r.error ? '' : d.peor || '',
+        'Descripción': r.error ? 'Error: ' + r.error : nombreSit(d.peor),
+        'Deuda total ($)': r.error ? '' : Math.round(d.total * 1000),
+        Entidades: r.error ? '' : d.entidades.length,
+        'Cheques rechazados': r.cheques ? r.cheques.length : ''
+      };
+    });
+    var detalle = [];
+    resultados.forEach(function (r) {
+      ((r.deudas && r.deudas.entidades) || []).forEach(function (e) {
+        detalle.push({
+          CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', 'Período': fmtPeriodo(r.deudas.periodo), Entidad: e.entidad,
+          'Situación': Number(e.situacion), 'Descripción': nombreSit(Number(e.situacion)), 'Monto ($)': Math.round((Number(e.monto) || 0) * 1000),
+          'Días de atraso': e.diasAtrasoPago, Observaciones: marcasEntidad(e).join(', ')
+        });
+      });
+    });
+    var cheques = [];
+    resultados.forEach(function (r) {
+      (r.cheques || []).forEach(function (c) {
+        cheques.push({
+          CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', Causal: c.causal, Entidad: c.entidad, 'N° cheque': c.nro,
+          'Fecha rechazo': fmtFecha(c.fecha), 'Monto ($)': c.monto, 'Fecha pago': fmtFecha(c.fechaPago),
+          'Estado multa': c.estadoMulta || '', 'Fecha pago multa': fmtFecha(c.fechaPagoMulta)
+        });
+      });
+    });
+    var historial = [];
+    resultados.forEach(function (r) {
+      (r.historicas || []).forEach(function (p) {
+        historial.push({
+          CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', 'Período': fmtPeriodo(p.periodo), 'Peor situación': p.peor,
+          'Deuda total ($)': Math.round(p.total * 1000), Entidades: p.cantidad
+        });
+      });
+    });
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumen), 'Resumen');
+    if (detalle.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detalle), 'Deudas por entidad');
+    if (cheques.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cheques), 'Cheques rechazados');
+    if (historial.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(historial), 'Historial');
+    var hoy = new Date();
+    var f = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+    XLSX.writeFile(wb, 'Consulta BCRA ' + f + '.xlsx');
+  }
+
+  // Excel con CUIT: toma cualquier celda con 11 números y, si hay, el texto de la columna de nombre.
+  function leerExcel(archivo) {
+    var lector = new FileReader();
+    lector.onload = function () {
+      try {
+        var wb = XLSX.read(new Uint8Array(lector.result), { type: 'array' });
+        var filas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+        var colNombre = -1;
+        if (filas.length) {
+          filas[0].forEach(function (t, j) {
+            if (colNombre === -1 && /nombre|cliente|raz[oó]n|denominaci/i.test(String(t))) colNombre = j;
+          });
+        }
+        var renglones = [];
+        filas.forEach(function (fila) {
+          for (var j = 0; j < fila.length; j++) {
+            var d = soloNumeros(fila[j]);
+            if (d.length === 11) {
+              renglones.push(fmtCuit(d) + (colNombre >= 0 && fila[colNombre] ? '  ' + String(fila[colNombre]).trim() : ''));
+              break;
+            }
+          }
+        });
+        if (!renglones.length) { alert('No encontré CUIT (11 números) en ese Excel.'); return; }
+        agregarRenglones(renglones);
+      } catch (e) {
+        alert('No se pudo leer el Excel: ' + e.message);
+      }
+    };
+    lector.readAsArrayBuffer(archivo);
+  }
+
+  // ---------------------------------------------------------------------------
+  function iniciar() {
+    try { $('cuits').value = localStorage.getItem(CLAVE_TEXTO) || ''; } catch (e) { /* nada */ }
+    actualizarEstadoLista();
+    $('cuits').addEventListener('input', actualizarEstadoLista);
+    $('archivo-excel').addEventListener('change', function () {
+      if (this.files && this.files[0]) leerExcel(this.files[0]);
+      this.value = '';
+    });
+    $('btn-limpiar').addEventListener('click', function () {
+      if ($('cuits').value && !confirm('¿Borrar todos los CUIT de la lista?')) return;
+      $('cuits').value = '';
+      actualizarEstadoLista();
+    });
+    $('btn-consultar').addEventListener('click', consultar);
+    $('btn-detener').addEventListener('click', function () { detener = true; $('progreso').textContent = 'Deteniendo…'; });
+    $('btn-excel').addEventListener('click', bajarExcel);
+    $('tabla-resultados').addEventListener('click', function (e) {
+      if (e.target.closest('.bcra-detalle')) return;
+      var fila = e.target.closest('.bcra-fila');
+      if (!fila) return;
+      var det = document.querySelector('[data-det="' + fila.getAttribute('data-i') + '"]');
+      if (det) det.hidden = !det.hidden;
+    });
+  }
+
+  iniciar();
+})();
