@@ -111,3 +111,30 @@ label.etiqueta { display: block; }
 .lista-cuits .l-vacio { padding: 12px; color: var(--gris); }
 .editar-lista { margin-top: 10px; }
 .editar-lista summary { cursor: pointer; font-weight: 600; color: var(--bordo); }
+.sec-cuadro { margin: 18px 0 8px; }
+.cuadro-cab { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cuadro-cab h3 { margin: 0; color: var(--bordo); font-size: 1.05rem; }
+.cuadro-meses-lbl { display: inline-flex; align-items: center; gap: 6px; }
+.cuadro-meses-lbl select { padding: 5px 8px; border: 1px solid var(--borde); border-radius: 8px; font: inherit; }
+.cuadro-cont { max-height: 70vh; overflow: auto; }
+.cuadro { border-collapse: separate; border-spacing: 0; font-size: .82rem; white-space: nowrap; }
+.cuadro th, .cuadro td { padding: 5px 8px; border-bottom: 1px solid var(--gris-claro); background: var(--blanco); }
+.cuadro thead th { background: var(--gris-claro); color: var(--gris); font-weight: 600; text-align: center; position: sticky; z-index: 2; }
+.cuadro thead tr:nth-child(1) th { top: 0; }
+.cuadro thead tr:nth-child(2) th { top: 27px; }
+.cuadro thead tr:nth-child(3) th { top: 52px; }
+.cuadro .c-mes { color: var(--texto); border-right: 2px solid var(--borde); }
+.cuadro .c-tc { font-weight: 400; font-size: .78rem; border-right: 2px solid var(--borde); }
+.cuadro td.c-fin, .cuadro th.c-fin { border-right: 2px solid var(--borde); }
+.cuadro .der { text-align: right; font-variant-numeric: tabular-nums; }
+.cuadro .c-fijo { position: sticky; z-index: 1; }
+.cuadro thead .c-fijo { z-index: 3; }
+.cuadro .c-fact { left: 0; min-width: 140px; }
+.cuadro .c-emp { left: 140px; min-width: 180px; max-width: 240px; white-space: normal; border-right: 2px solid var(--borde); }
+.cuadro .c-emp .ayuda { display: block; margin: 0; font-size: .75rem; }
+.cuadro .c-fact input { width: 125px; padding: 4px 6px; border: 1px solid var(--borde); border-radius: 6px; font: inherit; }
+.cuadro .c-sube { color: var(--bordo); }
+.cuadro .c-baja { color: var(--s1); }
+.cuadro td.c-medio { background: #fff4d6; }
+.cuadro td.c-alto { background: #f9d3d6; color: var(--bordo-oscuro); font-weight: 700; }
+.cuadro .c-falta { color: var(--bordo); font-weight: 600; }

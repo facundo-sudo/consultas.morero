@@ -123,7 +123,7 @@
       renderTc();
       $('tc-estado').textContent = 'No se pudo traer el dólar del Banco Nación (' + e.message + '). Escribilo a mano.' +
         (tc.hoy && tc.hoy.valor ? ' Por ahora se usa el último guardado.' : '');
-    }).then(function () { if (tc.modo === 'mes') return traerMeses(forzar); });
+    }).then(function () { return traerMeses(forzar); });
   }
 
   // Trae, de a uno, el dólar de fin de mes de los períodos que faltan (no pisa los cargados a mano).
@@ -500,7 +500,7 @@
       $('progreso').textContent = (detener ? 'Consulta detenida. ' : 'Listo. ') + resultados.length + ' de ' + lista.length + ' consultados' +
         (errores ? ' (' + errores + ' con error).' : '.') + ' ' + new Date().toLocaleString('es-AR');
       consultando = false;
-      if (tc.modo === 'mes') traerMeses(false);
+      traerMeses(false);
       $('btn-consultar').disabled = false;
       $('btn-consultar-todas').disabled = false;
       $('btn-detener').hidden = true;
@@ -640,6 +640,138 @@
     return h;
   }
 
+  // ---------------------------------------------------------------------------
+  // Cuadro mensual (como la planilla de deudas bancarias): por empresa y por mes,
+  // deuda en pesos, equivalente en dólares (dólar BNA de ese mes), variación y deuda sobre facturación.
+  // ---------------------------------------------------------------------------
+  var CLAVE_FACT = 'consulta-bcra.facturacion';
+  var facturacion = {};   // cuit -> texto, por ejemplo «400/430 MILL»
+  var MESES_LARGOS = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+
+  function cargarFacturacion() { try { facturacion = JSON.parse(localStorage.getItem(CLAVE_FACT) || '{}') || {}; } catch (e) { facturacion = {}; } }
+  function guardarFacturacion() { try { localStorage.setItem(CLAVE_FACT, JSON.stringify(facturacion)); } catch (e) { /* nada */ } }
+
+  // «400/430 MILL» -> 430.000.000 (se toma el número más alto del rango, en dólares).
+  function facturacionUsd(t) {
+    t = String(t || '');
+    var nums = (t.match(/\d+(?:[.,]\d+)*/g) || []).map(leerNumero).filter(Boolean);
+    if (!nums.length) return 0;
+    var max = Math.max.apply(null, nums);
+    if (/mil+\b|mill|mm|\bm\b/i.test(t) || max < 100000) max *= 1e6;
+    return max;
+  }
+
+  function mesAnterior(p) {
+    var y = Number(String(p).slice(0, 4)), m = Number(String(p).slice(4)) - 1;
+    if (m < 1) { m = 12; y--; }
+    return y + String(m).padStart(2, '0');
+  }
+  function tcDelMes(p) { var x = tc.meses[String(p)]; return x && x.valor ? x.valor : 0; }
+
+  function datosCuadro(lista, cantMeses) {
+    var todos = {};
+    lista.forEach(function (r) { (r.historicas || []).forEach(function (p) { todos[p.periodo] = true; }); });
+    var meses = Object.keys(todos).sort().slice(-cantMeses);
+    var filasC = lista.filter(function (r) { return !r.error && r.historicas; }).map(function (r) {
+      var porMes = {};
+      r.historicas.forEach(function (p) { porMes[p.periodo] = p; });
+      var fact = facturacionUsd(facturacion[r.cuit]);
+      var celdas = meses.map(function (m) {
+        var p = porMes[m];
+        if (!p) return null;
+        var pesos = Math.round(p.total * 1000), t = tcDelMes(m), usd = t ? pesos / t : null;
+        var ant = porMes[mesAnterior(m)], tAnt = tcDelMes(mesAnterior(m));
+        var usdAnt = ant && tAnt ? ant.total * 1000 / tAnt : null;
+        return {
+          pesos: pesos, usd: usd, peor: p.peor,
+          variacion: usd !== null && usdAnt ? usd / usdAnt - 1 : null,
+          sobreFact: usd !== null && fact ? usd / fact : null
+        };
+      });
+      var ultima = celdas[celdas.length - 1];
+      return { r: r, celdas: celdas, orden: ultima ? ultima.pesos : -1 };
+    }).sort(function (x, y) { return y.orden - x.orden; });
+    return { meses: meses, filas: filasC };
+  }
+
+  function fmtPct(v, dec) {
+    if (v === null || v === undefined || !isFinite(v)) return '';
+    return (v * 100).toLocaleString('es-AR', { minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0 }) + '%';
+  }
+
+  function renderCuadro() {
+    var lista = resultados.filter(function (r) { return (!filtro || r.categoria === filtro) && !r.error && r.historicas; });
+    $('sec-cuadro').hidden = !lista.length;
+    if (!lista.length) return;
+    var dc = datosCuadro(lista, Number($('cuadro-meses').value) || 8);
+    var faltan = dc.meses.filter(function (m) { return !tcDelMes(m); });
+    var h = '<table class="cuadro"><thead><tr><th rowspan="3" class="c-fijo c-fact">Facturación aprox. (US$)</th><th rowspan="3" class="c-fijo c-emp">Empresa</th>';
+    dc.meses.forEach(function (m) { h += '<th colspan="4" class="c-mes">' + MESES_LARGOS[Number(m.slice(4)) - 1] + ' ' + m.slice(0, 4) + '</th>'; });
+    h += '</tr><tr>';
+    dc.meses.forEach(function (m) {
+      var t = tcDelMes(m);
+      h += '<th colspan="4" class="c-tc">' + (t ? 'US$ 1 = $ ' + fmtTc(t) : '<span class="c-falta">Falta el dólar</span>') + '</th>';
+    });
+    h += '</tr><tr>';
+    dc.meses.forEach(function () { h += '<th class="c-sub">Pesos</th><th class="c-sub">Eq. dólares</th><th class="c-sub">Variación</th><th class="c-sub c-fin">Deuda s/ fact.</th>'; });
+    h += '</tr></thead><tbody>';
+    dc.filas.forEach(function (f) {
+      h += '<tr><td class="c-fijo c-fact"><input type="text" data-fact="' + f.r.cuit + '" value="' + escapar(facturacion[f.r.cuit] || '') + '" placeholder="Ej.: 400/430 MILL"></td>' +
+        '<td class="c-fijo c-emp"><strong>' + escapar(f.r.nombre || f.r.referencia || fmtCuit(f.r.cuit)) + '</strong><span class="ayuda">' + fmtCuit(f.r.cuit) + '</span></td>';
+      f.celdas.forEach(function (c) {
+        if (!c) { h += '<td class="der">–</td><td></td><td></td><td class="c-fin"></td>'; return; }
+        var v = c.variacion, sf = c.sobreFact;
+        h += '<td class="der">$ ' + c.pesos.toLocaleString('es-AR') + '</td>' +
+          '<td class="der">' + (c.usd === null ? '–' : 'US$ ' + Math.round(c.usd).toLocaleString('es-AR')) + '</td>' +
+          '<td class="der ' + (v > 0 ? 'c-sube' : v < 0 ? 'c-baja' : '') + '">' + (v === null ? '' : (v > 0 ? '▲ ' : v < 0 ? '▼ ' : '') + fmtPct(Math.abs(v), 1)) + '</td>' +
+          '<td class="der c-fin ' + (sf === null ? '' : sf >= 1 ? 'c-alto' : sf >= 0.5 ? 'c-medio' : '') + '">' + fmtPct(sf) + '</td>';
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table>';
+    $('cuadro').innerHTML = h;
+    $('cuadro-estado').textContent = faltan.length
+      ? 'Falta el dólar de ' + faltan.map(fmtPeriodo).join(', ') + ': se busca solo en el Banco Nación; si no aparece, cargalo en «Dólar por mes».' : '';
+  }
+
+  function hojaCuadro(lista) {
+    var dc = datosCuadro(lista, Number($('cuadro-meses').value) || 8);
+    var fmtP = '"$" #,##0', fmtU = '"US$" #,##0', fmtV = '0.0%', fmtF = '0%';
+    var f1 = ['', '', ''], f2 = ['FACTURACION APROX.', 'EMPRESA', 'CUIT'], f3 = ['', '', ''];
+    var merges = [{ s: { r: 1, c: 0 }, e: { r: 2, c: 0 } }, { s: { r: 1, c: 1 }, e: { r: 2, c: 1 } }, { s: { r: 1, c: 2 }, e: { r: 2, c: 2 } }];
+    dc.meses.forEach(function (m, k) {
+      var c0 = 3 + k * 4;
+      f1.push('Dólar BNA', tcDelMes(m) || '', '', '');
+      f2.push(MESES_LARGOS[Number(m.slice(4)) - 1] + ' ' + m.slice(0, 4), '', '', '');
+      f3.push('PESOS', 'EQ. DOLARES', 'VARIACION', 'DEUDA SOBRE FACT. APROX.');
+      merges.push({ s: { r: 1, c: c0 }, e: { r: 1, c: c0 + 3 } });
+    });
+    var aoa = [f1, f2, f3];
+    dc.filas.forEach(function (f) {
+      var fila = [facturacion[f.r.cuit] || '', f.r.nombre || f.r.referencia || '', fmtCuit(f.r.cuit)];
+      f.celdas.forEach(function (c) {
+        if (!c) fila.push('', '', '', '');
+        else fila.push(c.pesos, c.usd === null ? '' : c.usd, c.variacion === null ? '' : c.variacion, c.sobreFact === null ? '' : c.sobreFact);
+      });
+      aoa.push(fila);
+    });
+    var ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!merges'] = merges;
+    ws['!cols'] = [{ wch: 18 }, { wch: 28 }, { wch: 15 }].concat(dc.meses.reduce(function (acc) { return acc.concat([{ wch: 18 }, { wch: 15 }, { wch: 10 }, { wch: 12 }]); }, []));
+    var formatos = [fmtP, fmtU, fmtV, fmtF];
+    for (var R = 3; R < aoa.length; R++) {
+      for (var C = 3; C < aoa[R].length; C++) {
+        var cel = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+        if (cel && cel.t === 'n') cel.z = formatos[(C - 3) % 4];
+      }
+    }
+    dc.meses.forEach(function (m, k) {
+      var cel = ws[XLSX.utils.encode_cell({ r: 0, c: 4 + k * 4 })];
+      if (cel && cel.t === 'n') cel.z = '"$" #,##0.00';
+    });
+    return ws;
+  }
+
   function renderTabla() {
     var tb = $('tabla-resultados');
     if (!consultando && !resultados.length) return;
@@ -660,6 +792,7 @@
         '</td><td class="der">' + (r.cheques ? r.cheques.length : '—') + '</td></tr>' +
         '<tr class="bcra-detalle" data-det="' + i + '" hidden><td colspan="9">' + htmlDetalle(r) + '</td></tr>';
     }).join('');
+    renderCuadro();
   }
 
   // ---------------------------------------------------------------------------
@@ -719,6 +852,7 @@
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumen), 'Resumen');
+    if (elegidos.some(function (r) { return r.historicas && r.historicas.length; })) XLSX.utils.book_append_sheet(wb, hojaCuadro(elegidos), 'Cuadro mensual');
     if (detalle.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detalle), 'Deudas por entidad');
     if (cheques.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cheques), 'Cheques rechazados');
     if (historial.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(historial), 'Historial');
@@ -754,17 +888,23 @@
           // Si ninguna hoja tiene nombre de categoría, solo se lee la primera.
           if (nh > 0 && !catHoja && !wb.SheetNames.some(function (n) { return categoriaDeTexto(n); })) return;
           var filas = XLSX.utils.sheet_to_json(wb.Sheets[nombreHoja], { header: 1, defval: '' });
-          var colNombre = -1, colCat = -1;
-          (filas[0] || []).forEach(function (t, j) {
+          var colNombre = -1, colCat = -1, colFact = -1;
+          var iTit = 0;
+          for (var q = 0; q < Math.min(filas.length, 10); q++) {
+            if (filas[q].some(function (t) { return /nombre|cliente|raz[oó]n|denominaci|empresa|categor|factur/i.test(String(t)); })) { iTit = q; break; }
+          }
+          (filas[iTit] || []).forEach(function (t, j) {
+            if (colFact === -1 && /factur/i.test(String(t))) colFact = j;
             t = String(t);
-            if (colNombre === -1 && /nombre|cliente|raz[oó]n|denominaci|proveedor/i.test(t) && !/cuit/i.test(t)) colNombre = j;
+            if (colNombre === -1 && /nombre|cliente|raz[oó]n|denominaci|proveedor|empresa/i.test(t) && !/cuit|factur/i.test(t)) colNombre = j;
             if (colCat === -1 && /categor|^tipo|rubro|grupo/i.test(t.trim())) colCat = j;
           });
           if (colNombre === colCat) colNombre = -1;
           filas.forEach(function (fila) {
             for (var j = 0; j < fila.length; j++) {
               var d = soloNumeros(fila[j]);
-              if (d.length === 11 && j !== colCat) {
+              if (d.length === 11 && j !== colCat && j !== colFact) {
+                if (colFact >= 0 && String(fila[colFact]).trim()) facturacion[d] = String(fila[colFact]).trim();
                 var cat = (colCat >= 0 && categoriaDeTexto(fila[colCat])) || catHoja || catActual;
                 (porCat[cat] = porCat[cat] || []).push(fmtCuit(d) + (colNombre >= 0 && fila[colNombre] ? '  ' + String(fila[colNombre]).trim() : ''));
                 total++;
@@ -775,6 +915,7 @@
           });
         });
         if (!hojaUsada) { alert('No encontré CUIT (11 números) en ese Excel.'); return; }
+        guardarFacturacion();
         listas[catActual] = $('cuits').value;
         var resumen = [];
         CATEGORIAS.forEach(function (c) {
@@ -802,6 +943,15 @@
   function iniciar() {
     cargarListas();
     cargarTc();
+    cargarFacturacion();
+    $('cuadro-meses').addEventListener('change', renderCuadro);
+    $('cuadro').addEventListener('change', function (e) {
+      var c = e.target.getAttribute('data-fact');
+      if (!c) return;
+      if (e.target.value.trim()) facturacion[c] = e.target.value.trim(); else delete facturacion[c];
+      guardarFacturacion();
+      renderCuadro();
+    });
     renderTc();
     traerTc(false);
     document.querySelectorAll('input[name="tc-modo"]').forEach(function (r) {
