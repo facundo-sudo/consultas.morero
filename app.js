@@ -542,23 +542,27 @@
     var asc = hist.slice().reverse();          // del más viejo al más nuevo
     var n = asc.length;
     // Grilla por mes (como los informes comerciales): puntaje, bancos y situación.
-    var h = '<h4>Evolución de los últimos 24 meses</h4><div class="bcra-tabla-cont"><table class="evo-grid"><thead><tr><th></th>';
+    // Mismas proporciones que el gráfico (margen izquierdo 70 y derecho 10 de 720), para que cada mes quede sobre su barra.
+    var anchoMes = (100 - 70 / 7.2 - 10 / 7.2) / Math.max(n, 1);
+    var h = '<h4>Evolución de los últimos 24 meses</h4><div class="evo-grafico"><div class="evo-grid-cont"><table class="evo-grid"><colgroup><col style="width:' + (70 / 7.2) + '%">';
+    asc.forEach(function () { h += '<col style="width:' + anchoMes + '%">'; });
+    h += '<col style="width:' + (10 / 7.2) + '%"></colgroup><thead><tr><th></th>';
     asc.forEach(function (p) { var s = String(p.periodo); h += '<th>' + s.slice(4) + '<br>' + s.slice(2, 4) + '</th>'; });
-    h += '</tr></thead><tbody><tr><th>Puntaje</th>';
+    h += '<th></th></tr></thead><tbody><tr><th>Puntaje</th>';
     asc.forEach(function (p, k) { var v = puntajeMes(hist, n - 1 - k); h += '<td>' + (v == null ? '–' : v) + '</td>'; });
-    h += '</tr><tr><th>Bancos</th>';
+    h += '<td></td></tr><tr><th>Bancos</th>';
     asc.forEach(function (p) { h += '<td>' + (p.cantidad || '–') + '</td>'; });
-    h += '</tr><tr><th>Situación</th>';
+    h += '<td></td></tr><tr><th>Situación</th>';
     asc.forEach(function (p) {
       h += p.peor ? '<td class="celda-sit s' + Math.min(p.peor, 5) + '" title="' + escapar(nombreSit(p.peor)) + '">' + p.peor + '</td>' : '<td>–</td>';
     });
-    h += '</tr></tbody></table></div>';
+    h += '<td></td></tr></tbody></table></div>';
 
     // Gráfico de barras: deuda total por mes, color según la peor situación del mes.
     var W = 720, H = 250, iz = 70, de = 10, ar = 22, ab = 26;
     var max = 0;
     asc.forEach(function (p) { max = Math.max(max, p.total * 1000); });
-    if (!max) return h + '<p>No tuvo deudas en los últimos 24 meses.</p>';
+    if (!max) return h + '</div><p>No tuvo deudas en los últimos 24 meses.</p>';
     var paso = pasoRedondo(max), tope = Math.ceil(max / paso) * paso;
     var alto = H - ar - ab, ancho = W - iz - de, slot = ancho / Math.max(n, 1), bw = Math.max(4, Math.min(22, slot * 0.6));
     var y = function (v) { return ar + alto - (v / tope) * alto; };
@@ -587,7 +591,7 @@
       s += '<rect class="evo-hit" x="' + (iz + slot * k) + '" y="' + ar + '" width="' + slot + '" height="' + alto + '" data-tip="' + escapar(tip) + '"/>';
     });
     s += '<line class="evo-base" x1="' + iz + '" x2="' + (W - de) + '" y1="' + (ar + alto) + '" y2="' + (ar + alto) + '"/></svg>';
-    h += '<div class="evo-grafico">' + s + '</div><div class="evo-leyenda">' +
+    h += s + '</div><div class="evo-leyenda">' +
       [1, 2, 3, 4, 5].map(function (k) { return '<span><i class="s' + k + '"></i>' + k + ' · ' + escapar(SITUACIONES[k]) + '</span>'; }).join('') + '</div>';
     return h;
   }
@@ -832,6 +836,9 @@
     if (!consultando && !resultados.length) return;
     renderFiltros();
     if (!resultados.length) { tb.innerHTML = '<tr><td colspan="9">Consultando…</td></tr>'; return; }
+    // Recordar qué detalles estaban abiertos, para no cerrarlos al volver a dibujar.
+    var abiertos = {};
+    tb.querySelectorAll('.bcra-detalle').forEach(function (d) { if (!d.hidden) abiertos[d.getAttribute('data-det')] = true; });
     tb.innerHTML = resultados.map(function (r, i) {
       if (filtro && r.categoria !== filtro) return '';
       var cat = '<td class="nowrap">' + escapar(nombreCat(r.categoria)) + '</td>';
@@ -845,7 +852,7 @@
         '</td>' + cat + '<td class="nowrap">' + escapar(fmtPeriodo(d.periodo)) + '</td><td>' + etiquetaSit(d.peor) +
         '</td><td>' + etiquetaPuntaje(puntaje(r)) + '</td><td class="der">' + (d.entidades.length ? fmtMonto(d.total, d.periodo) : '—') + '</td><td class="der">' + d.entidades.length +
         '</td><td class="der">' + (r.cheques ? r.cheques.length : '—') + '</td></tr>' +
-        '<tr class="bcra-detalle" data-det="' + i + '" hidden><td colspan="9">' + htmlDetalle(r) + '</td></tr>';
+        '<tr class="bcra-detalle" data-det="' + i + '"' + (abiertos[i] ? '' : ' hidden') + '><td colspan="9">' + htmlDetalle(r) + '</td></tr>';
     }).join('');
     renderCuadro();
   }

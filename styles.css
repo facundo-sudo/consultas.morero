@@ -75,13 +75,18 @@ label.etiqueta { display: block; }
 .tc-meses input.manual { border-color: var(--aviso-borde); background: var(--aviso); }
 #tc-meses-cont summary { cursor: pointer; font-weight: 600; color: var(--bordo); margin-top: 8px; }
 .usd { display: block; color: var(--gris); font-size: .85rem; }
-.evo-grid { width: auto !important; font-size: .8rem !important; }
-.evo-grid th, .evo-grid td { text-align: center !important; padding: 4px 6px !important; white-space: nowrap; }
+.evo-grid-cont { overflow-x: auto; margin-bottom: 6px; }
+.evo-grid { width: 100% !important; min-width: 640px; table-layout: fixed; border-collapse: collapse; font-size: .74rem !important; background: none !important; }
+.evo-grid th, .evo-grid td { text-align: center !important; padding: 3px 0 !important; white-space: nowrap; overflow: hidden; }
+.evo-grid th, .evo-grid td:not(.celda-sit) { background: none !important; }
+.evo-grid thead th { color: var(--gris); font-weight: 600; }
+.evo-grid tbody th { text-align: left !important; padding-left: 4px !important; color: var(--gris); font-weight: 600; }
 .evo-grid tbody th { text-align: left !important; }
 .evo-grid td.celda-sit { color: #fff; font-weight: 700; border: 2px solid var(--blanco); }
 .celda-sit.s1 { background: var(--s1); } .celda-sit.s2 { background: var(--s2); color: #222 !important; }
 .celda-sit.s3 { background: var(--s3); } .celda-sit.s4 { background: var(--s4); } .celda-sit.s5 { background: var(--s5); }
-.evo-grafico { background: var(--blanco); border: 1px solid var(--borde); border-radius: 8px; padding: 8px; margin-top: 10px; }
+.evo-grafico { background: var(--blanco); border: 1px solid var(--borde); border-radius: 8px; padding: 8px; margin-top: 10px; overflow-x: auto; }
+.evo-svg { min-width: 640px; }
 .evo-svg { display: block; width: 100%; height: auto; }
 .evo-grilla { stroke: var(--gris-claro); stroke-width: 1; }
 .evo-base { stroke: var(--borde); stroke-width: 1; }
