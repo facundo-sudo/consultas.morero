@@ -55,3 +55,12 @@ textarea:focus { outline: 2px solid var(--bordo); outline-offset: 1px; }
 .marca { display: inline-block; margin: 0 4px 2px 0; padding: 1px 6px; border-radius: 4px; background: var(--aviso); border: 1px solid var(--aviso-borde); font-size: .78rem; }
 .bcra-ref ol { margin: 6px 0; padding-left: 20px; }
 @media (max-width: 600px) { .barra-logo { height: 42px; } }
+.solapas { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.solapa { padding: 7px 12px; border: 1px solid var(--borde); border-radius: 999px; background: var(--blanco); color: var(--texto); font: inherit; font-weight: 600; font-size: .92rem; cursor: pointer; }
+.solapa:hover { background: var(--gris-claro); }
+.solapa[aria-selected="true"] { background: var(--bordo); border-color: var(--bordo); color: var(--blanco); }
+.solapa .cuenta { display: inline-block; min-width: 20px; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--gris-claro); color: var(--gris); font-size: .8rem; text-align: center; }
+.solapa[aria-selected="true"] .cuenta { background: rgba(255,255,255,.25); color: var(--blanco); }
+.solapas-chicas .solapa { padding: 4px 10px; font-size: .85rem; }
+label.etiqueta { display: block; }
+.solapas-chicas { margin: 10px 0; }

@@ -5,7 +5,19 @@
 (function () {
   'use strict';
 
-  var CLAVE_TEXTO = 'consulta-bcra.cuits';
+  var CLAVE_TEXTO = 'consulta-bcra.cuits'; // versión anterior (una sola lista)
+  var CLAVE_LISTAS = 'consulta-bcra.listas';
+  var CLAVE_CAT = 'consulta-bcra.categoria';
+  var CATEGORIAS = [
+    { id: 'proveedores', nombre: 'Proveedores' },
+    { id: 'agronomias', nombre: 'Agronomías' },
+    { id: 'productores', nombre: 'Productores' },
+    { id: 'grupos', nombre: 'Grupos de siembra' },
+    { id: 'varios', nombre: 'Varios' }
+  ];
+  var listas = {};      // id de categoría -> texto con los CUIT
+  var catActual = 'proveedores';
+  var filtro = '';      // categoría elegida en los resultados ('' = todas)
   var PAUSA_MS = 350; // entre consultas, para no saturar la API del BCRA
 
   var SITUACIONES = {
@@ -16,6 +28,11 @@
     5: 'Irrecuperable',
     6: 'Irrecuperable (disp. técnica)'
   };
+
+  function nombreCat(id) {
+    for (var i = 0; i < CATEGORIAS.length; i++) if (CATEGORIAS[i].id === id) return CATEGORIAS[i].nombre;
+    return id;
+  }
 
   var resultados = [];
   var detener = false;
@@ -59,16 +76,16 @@
   }
 
   // Lee el texto: cada renglón con un CUIT (11 números, con o sin guiones) y, opcional, un nombre.
-  function leerLista() {
+  function leerLista(texto, categoria) {
     var vistos = {}, lista = [];
-    $('cuits').value.split(/\r?\n/).forEach(function (renglon) {
+    String(texto == null ? $('cuits').value : texto).split(/\r?\n/).forEach(function (renglon) {
       var m = renglon.match(/(\d{2})[\s.\-\/]?(\d{8})[\s.\-\/]?(\d)(?!\d)/);
       if (!m) return;
       var d = m[1] + m[2] + m[3];
       if (vistos[d]) return;
       vistos[d] = true;
       var nombre = renglon.replace(m[0], '').replace(/^[\s,;:\t\-–]+|[\s,;:\t\-–]+$/g, '');
-      lista.push({ cuit: d, referencia: nombre, valido: cuitValido(d) });
+      lista.push({ cuit: d, referencia: nombre, valido: cuitValido(d), categoria: categoria || catActual });
     });
     return lista;
   }
@@ -79,7 +96,52 @@
     var t = lista.length ? lista.length + ' CUIT para consultar.' : 'Todavía no hay CUIT cargados.';
     if (malos.length) t += ' Ojo: ' + malos.map(function (x) { return fmtCuit(x.cuit); }).join(', ') + (malos.length === 1 ? ' no parece un CUIT válido' : ' no parecen CUIT válidos') + ' (dígito verificador).';
     $('cuits-estado').textContent = t;
-    try { localStorage.setItem(CLAVE_TEXTO, $('cuits').value); } catch (e) { /* nada */ }
+    listas[catActual] = $('cuits').value;
+    guardarListas();
+    renderSolapas();
+  }
+
+  function guardarListas() {
+    try { localStorage.setItem(CLAVE_LISTAS, JSON.stringify(listas)); localStorage.setItem(CLAVE_CAT, catActual); } catch (e) { /* nada */ }
+  }
+
+  function cargarListas() {
+    try { listas = JSON.parse(localStorage.getItem(CLAVE_LISTAS) || '{}') || {}; } catch (e) { listas = {}; }
+    try {
+      var vieja = localStorage.getItem(CLAVE_TEXTO);
+      if (vieja && !Object.keys(listas).length) { listas.varios = vieja; catActual = 'varios'; }
+      if (vieja) localStorage.removeItem(CLAVE_TEXTO);
+      var c = localStorage.getItem(CLAVE_CAT);
+      if (c && CATEGORIAS.some(function (x) { return x.id === c; })) catActual = c;
+    } catch (e) { /* nada */ }
+  }
+
+  function renderSolapas() {
+    $('solapas').innerHTML = CATEGORIAS.map(function (c) {
+      var n = leerLista(listas[c.id] || '', c.id).length;
+      return '<button type="button" class="solapa" role="tab" data-cat="' + c.id + '" aria-selected="' + (c.id === catActual) + '">' +
+        escapar(c.nombre) + '<span class="cuenta">' + n + '</span></button>';
+    }).join('');
+    $('nombre-cat').textContent = nombreCat(catActual);
+  }
+
+  function elegirCategoria(id) {
+    listas[catActual] = $('cuits').value;
+    catActual = id;
+    $('cuits').value = listas[id] || '';
+    actualizarEstadoLista();
+  }
+
+  function renderFiltros() {
+    var hay = {};
+    resultados.forEach(function (r) { hay[r.categoria] = (hay[r.categoria] || 0) + 1; });
+    var cats = CATEGORIAS.filter(function (c) { return hay[c.id]; });
+    if (cats.length < 2) { $('filtros').innerHTML = ''; filtro = ''; return; }
+    if (filtro && !hay[filtro]) filtro = '';
+    $('filtros').innerHTML = '<button type="button" class="solapa" data-filtro="" aria-selected="' + (filtro === '') + '">Todas<span class="cuenta">' + resultados.length + '</span></button>' +
+      cats.map(function (c) {
+        return '<button type="button" class="solapa" data-filtro="' + c.id + '" aria-selected="' + (filtro === c.id) + '">' + escapar(c.nombre) + '<span class="cuenta">' + hay[c.id] + '</span></button>';
+      }).join('');
   }
 
   function agregarRenglones(renglones) {
@@ -157,7 +219,7 @@
   }
 
   function consultarUno(item, opciones) {
-    var r = { cuit: item.cuit, referencia: item.referencia, error: '' };
+    var r = { cuit: item.cuit, referencia: item.referencia, categoria: item.categoria, error: '' };
     return pedir(item.cuit, 'deudas').then(function (res) {
       r.deudas = resumirDeudas(res);
       r.nombre = r.deudas.nombre;
@@ -177,15 +239,21 @@
     }).then(function () { return r; });
   }
 
-  function consultar() {
+  function consultar(todas) {
     if (consultando) return;
-    var lista = leerLista();
-    if (!lista.length) { alert('Pegá al menos un CUIT (11 números).'); return; }
+    listas[catActual] = $('cuits').value;
+    var lista = [];
+    (todas ? CATEGORIAS.map(function (c) { return c.id; }) : [catActual]).forEach(function (id) {
+      lista = lista.concat(leerLista(listas[id] || '', id));
+    });
+    if (!lista.length) { alert(todas ? 'No hay CUIT cargados en ninguna categoría.' : 'Pegá al menos un CUIT (11 números) en ' + nombreCat(catActual) + '.'); return; }
+    filtro = todas ? '' : catActual;
     var opciones = { cheques: $('op-cheques').checked, historicas: $('op-historicas').checked };
     consultando = true;
     detener = false;
     resultados = [];
     $('btn-consultar').disabled = true;
+    $('btn-consultar-todas').disabled = true;
     $('btn-detener').hidden = false;
     $('progreso').hidden = false;
     $('sec-resultados').hidden = false;
@@ -195,7 +263,7 @@
     function siguiente() {
       if (detener || i >= lista.length) return Promise.resolve();
       var item = lista[i];
-      $('progreso').textContent = 'Consultando ' + (i + 1) + ' de ' + lista.length + ': ' + fmtCuit(item.cuit) + '…';
+      $('progreso').textContent = 'Consultando ' + (i + 1) + ' de ' + lista.length + ': ' + fmtCuit(item.cuit) + ' (' + nombreCat(item.categoria) + ')…';
       return consultarUno(item, opciones).then(function (r) {
         resultados.push(r);
         renderTabla();
@@ -209,6 +277,7 @@
         (errores ? ' (' + errores + ' con error).' : '.') + ' ' + new Date().toLocaleString('es-AR');
       consultando = false;
       $('btn-consultar').disabled = false;
+      $('btn-consultar-todas').disabled = false;
       $('btn-detener').hidden = true;
     });
   }
@@ -275,19 +344,22 @@
 
   function renderTabla() {
     var tb = $('tabla-resultados');
-    if (!resultados.length) { tb.innerHTML = '<tr><td colspan="7">Consultando…</td></tr>'; return; }
+    renderFiltros();
+    if (!resultados.length) { tb.innerHTML = '<tr><td colspan="8">Consultando…</td></tr>'; return; }
     tb.innerHTML = resultados.map(function (r, i) {
+      if (filtro && r.categoria !== filtro) return '';
+      var cat = '<td class="nowrap">' + escapar(nombreCat(r.categoria)) + '</td>';
       var nombre = escapar(r.nombre || r.referencia || '');
       if (r.nombre && r.referencia && r.referencia !== r.nombre) nombre += '<br><span class="ayuda">' + escapar(r.referencia) + '</span>';
       if (r.error) {
-        return '<tr><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre + '</td><td colspan="5"><span class="sit sit-err">Error</span> ' + escapar(r.error) + '</td></tr>';
+        return '<tr><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre + '</td>' + cat + '<td colspan="5"><span class="sit sit-err">Error</span> ' + escapar(r.error) + '</td></tr>';
       }
       var d = r.deudas;
       return '<tr class="bcra-fila" data-i="' + i + '" title="Ver detalle"><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre +
-        '</td><td class="nowrap">' + escapar(fmtPeriodo(d.periodo)) + '</td><td>' + etiquetaSit(d.peor) +
+        '</td>' + cat + '<td class="nowrap">' + escapar(fmtPeriodo(d.periodo)) + '</td><td>' + etiquetaSit(d.peor) +
         '</td><td class="der">' + (d.entidades.length ? fmtPesos(d.total) : '—') + '</td><td class="der">' + d.entidades.length +
         '</td><td class="der">' + (r.cheques ? r.cheques.length : '—') + '</td></tr>' +
-        '<tr class="bcra-detalle" data-det="' + i + '" hidden><td colspan="7">' + htmlDetalle(r) + '</td></tr>';
+        '<tr class="bcra-detalle" data-det="' + i + '" hidden><td colspan="8">' + htmlDetalle(r) + '</td></tr>';
     }).join('');
   }
 
@@ -296,9 +368,11 @@
   // ---------------------------------------------------------------------------
   function bajarExcel() {
     if (!resultados.length) { alert('Primero hay que consultar.'); return; }
-    var resumen = resultados.map(function (r) {
+    var elegidos = resultados.filter(function (r) { return !filtro || r.categoria === filtro; });
+    var resumen = elegidos.map(function (r) {
       var d = r.deudas || { entidades: [] };
       return {
+        'Categoría': nombreCat(r.categoria),
         CUIT: fmtCuit(r.cuit),
         Nombre: r.nombre || '',
         Referencia: r.referencia || '',
@@ -311,30 +385,30 @@
       };
     });
     var detalle = [];
-    resultados.forEach(function (r) {
+    elegidos.forEach(function (r) {
       ((r.deudas && r.deudas.entidades) || []).forEach(function (e) {
         detalle.push({
-          CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', 'Período': fmtPeriodo(r.deudas.periodo), Entidad: e.entidad,
+          'Categoría': nombreCat(r.categoria), CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', 'Período': fmtPeriodo(r.deudas.periodo), Entidad: e.entidad,
           'Situación': Number(e.situacion), 'Descripción': nombreSit(Number(e.situacion)), 'Monto ($)': Math.round((Number(e.monto) || 0) * 1000),
           'Días de atraso': e.diasAtrasoPago, Observaciones: marcasEntidad(e).join(', ')
         });
       });
     });
     var cheques = [];
-    resultados.forEach(function (r) {
+    elegidos.forEach(function (r) {
       (r.cheques || []).forEach(function (c) {
         cheques.push({
-          CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', Causal: c.causal, Entidad: c.entidad, 'N° cheque': c.nro,
+          'Categoría': nombreCat(r.categoria), CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', Causal: c.causal, Entidad: c.entidad, 'N° cheque': c.nro,
           'Fecha rechazo': fmtFecha(c.fecha), 'Monto ($)': c.monto, 'Fecha pago': fmtFecha(c.fechaPago),
           'Estado multa': c.estadoMulta || '', 'Fecha pago multa': fmtFecha(c.fechaPagoMulta)
         });
       });
     });
     var historial = [];
-    resultados.forEach(function (r) {
+    elegidos.forEach(function (r) {
       (r.historicas || []).forEach(function (p) {
         historial.push({
-          CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', 'Período': fmtPeriodo(p.periodo), 'Peor situación': p.peor,
+          'Categoría': nombreCat(r.categoria), CUIT: fmtCuit(r.cuit), Nombre: r.nombre || '', 'Período': fmtPeriodo(p.periodo), 'Peor situación': p.peor,
           'Deuda total ($)': Math.round(p.total * 1000), Entidades: p.cantidad
         });
       });
@@ -346,7 +420,7 @@
     if (historial.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(historial), 'Historial');
     var hoy = new Date();
     var f = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
-    XLSX.writeFile(wb, 'Consulta BCRA ' + f + '.xlsx');
+    XLSX.writeFile(wb, 'Consulta BCRA ' + (filtro ? nombreCat(filtro) + ' ' : '') + f + '.xlsx');
   }
 
   // Excel con CUIT: toma cualquier celda con 11 números y, si hay, el texto de la columna de nombre.
@@ -383,19 +457,31 @@
 
   // ---------------------------------------------------------------------------
   function iniciar() {
-    try { $('cuits').value = localStorage.getItem(CLAVE_TEXTO) || ''; } catch (e) { /* nada */ }
+    cargarListas();
+    $('cuits').value = listas[catActual] || '';
     actualizarEstadoLista();
+    $('solapas').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-cat]');
+      if (b && b.getAttribute('data-cat') !== catActual) elegirCategoria(b.getAttribute('data-cat'));
+    });
+    $('filtros').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-filtro]');
+      if (!b) return;
+      filtro = b.getAttribute('data-filtro');
+      renderTabla();
+    });
     $('cuits').addEventListener('input', actualizarEstadoLista);
     $('archivo-excel').addEventListener('change', function () {
       if (this.files && this.files[0]) leerExcel(this.files[0]);
       this.value = '';
     });
     $('btn-limpiar').addEventListener('click', function () {
-      if ($('cuits').value && !confirm('¿Borrar todos los CUIT de la lista?')) return;
+      if ($('cuits').value && !confirm('¿Borrar todos los CUIT de ' + nombreCat(catActual) + '?')) return;
       $('cuits').value = '';
       actualizarEstadoLista();
     });
-    $('btn-consultar').addEventListener('click', consultar);
+    $('btn-consultar').addEventListener('click', function () { consultar(false); });
+    $('btn-consultar-todas').addEventListener('click', function () { consultar(true); });
     $('btn-detener').addEventListener('click', function () { detener = true; $('progreso').textContent = 'Deteniendo…'; });
     $('btn-excel').addEventListener('click', bajarExcel);
     $('tabla-resultados').addEventListener('click', function (e) {

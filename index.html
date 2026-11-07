@@ -21,22 +21,24 @@
   <main class="contenedor">
     <section class="tarjeta">
       <h2><span class="num">1</span> CUIT a consultar</h2>
-      <label for="cuits">Pegá los CUIT (uno por renglón, con o sin guiones; se puede copiar una columna de Excel). Si después del CUIT ponés un nombre, se usa como referencia.</label>
-      <textarea id="cuits" rows="8" placeholder="30-70786698-1  Cliente ejemplo&#10;20123456786"></textarea>
+      <div class="solapas" id="solapas" role="tablist"></div>
+      <label for="cuits" class="etiqueta">CUIT de <span id="nombre-cat">la categoría</span>: uno por renglón, con o sin guiones (se puede copiar una columna de Excel). Si después del CUIT ponés un nombre, se usa como referencia.</label>
+      <textarea id="cuits" rows="8" placeholder="30-70786698-1  Nombre&#10;20123456786"></textarea>
       <p id="cuits-estado" class="ayuda"></p>
       <div class="botones">
         <label class="boton">
-          Subir Excel con CUIT
+          Subir Excel a esta categoría
           <input type="file" id="archivo-excel" accept=".xlsx,.xls,.xlsm,.ods,.csv" hidden>
         </label>
-        <button type="button" class="boton boton-texto" id="btn-limpiar">Borrar todo</button>
+        <button type="button" class="boton boton-texto" id="btn-limpiar">Borrar esta categoría</button>
       </div>
       <div class="bcra-opciones">
         <label class="check"><input type="checkbox" id="op-cheques" checked> Cheques rechazados</label>
         <label class="check"><input type="checkbox" id="op-historicas"> Historial de los últimos 24 meses</label>
       </div>
       <div class="botones">
-        <button type="button" class="boton boton-primario" id="btn-consultar">Consultar en el BCRA</button>
+        <button type="button" class="boton boton-primario" id="btn-consultar">Consultar esta categoría</button>
+        <button type="button" class="boton" id="btn-consultar-todas">Consultar todas</button>
         <button type="button" class="boton" id="btn-detener" hidden>Detener</button>
       </div>
       <p id="progreso" class="estado" hidden></p>
@@ -45,12 +47,14 @@
     <section class="tarjeta" id="sec-resultados" hidden>
       <h2><span class="num">2</span> Resultados</h2>
       <p class="ayuda">Último período informado por cada entidad. Los montos están en pesos (el BCRA los informa en miles). Tocá un renglón para ver el detalle.</p>
+      <div class="solapas solapas-chicas" id="filtros"></div>
       <div class="bcra-tabla-cont">
         <table class="bcra-tabla">
           <thead>
             <tr>
               <th>CUIT</th>
               <th>Nombre</th>
+              <th>Categoría</th>
               <th>Período</th>
               <th>Peor situación</th>
               <th class="der">Deuda total</th>
