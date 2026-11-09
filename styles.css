@@ -154,3 +154,4 @@ label.etiqueta { display: block; }
 .lista-cuits .l-ref { color: var(--gris); }
 .lista-cuits .l-sin { color: var(--gris); font-style: italic; font-size: .88rem; }
 #nombres-estado:empty { display: none; }
+.det-botones { margin: 0 0 10px; justify-content: flex-end; }

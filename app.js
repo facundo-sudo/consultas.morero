@@ -641,7 +641,7 @@
   }
 
   function htmlDetalle(r) {
-    var h = '';
+    var h = '<div class="botones det-botones"><button type="button" class="boton boton-chico" data-pdf="' + resultados.indexOf(r) + '">Bajar PDF de este CUIT</button></div>';
     var d = r.deudas || { entidades: [] };
     if (d.entidades.length) {
       h += '<h4>Deudas · período ' + escapar(fmtPeriodo(d.periodo)) + '</h4><div class="bcra-tabla-cont"><table><thead><tr>' +
@@ -1168,6 +1168,8 @@
       tip.style.top = yy + 'px';
     });
     $('tabla-resultados').addEventListener('click', function (e) {
+      var bp = e.target.closest('[data-pdf]');
+      if (bp) { window.ReportePDF.individual([resultados[Number(bp.getAttribute('data-pdf'))]]); return; }
       if (e.target.closest('.bcra-detalle')) return;
       var fila = e.target.closest('.bcra-fila');
       if (!fila) return;
@@ -1175,6 +1177,19 @@
       if (det) det.hidden = !det.hidden;
     });
   }
+
+  // Lo que necesita pdf.js para armar los reportes.
+  window.ConsultaBCRA = {
+    resultados: function () { return resultados; },
+    visibles: function () { return resultados.filter(function (r) { return !filtro || r.categoria === filtro; }); },
+    filtro: function () { return filtro; },
+    nombreCat: nombreCat, fmtCuit: fmtCuit, fmtPeriodo: fmtPeriodo, fmtFecha: fmtFecha, fmtTc: fmtTc,
+    nombreSit: nombreSit, SITUACIONES: SITUACIONES, MESES: MESES, MESES_LARGOS: MESES_LARGOS,
+    enDolares: enDolares, tcPara: tcPara, modoTc: function () { return tc.modo; }, tcHoy: function () { return tc.hoy; },
+    puntaje: puntaje, puntajeMes: puntajeMes, bandaPuntaje: bandaPuntaje, marcasEntidad: marcasEntidad,
+    datosCuadro: datosCuadro, tcCuadro: tcCuadro, tcEsDeHoy: tcEsDeHoy, cantMeses: function () { return Number($('cuadro-meses').value) || 8; },
+    facturacion: function (cuit) { return facturacion[cuit] || ''; }
+  };
 
   iniciar();
 })();

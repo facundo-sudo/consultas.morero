@@ -119,6 +119,8 @@
         <p id="cuadro-estado" class="ayuda"></p>
       </div>
       <div class="botones">
+        <button type="button" class="boton boton-primario" id="btn-pdf-grupo">PDF del grupo (meses)</button>
+        <button type="button" class="boton" id="btn-pdf-individual">PDF individual de cada CUIT</button>
         <button type="button" class="boton" id="btn-excel">Bajar en Excel</button>
         <button type="button" class="boton" id="btn-nueva">Nueva consulta</button>
       </div>
@@ -140,6 +142,9 @@
 
   <div id="tip" class="tip" hidden></div>
   <script src="vendor/xlsx.full.min.js"></script>
+  <script src="vendor/jspdf.umd.min.js"></script>
+  <script src="vendor/jspdf.plugin.autotable.min.js"></script>
   <script src="app.js"></script>
+  <script src="pdf.js"></script>
 </body>
 </html>
