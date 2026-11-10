@@ -777,7 +777,7 @@
     h += '</tr></thead><tbody>';
     dc.filas.forEach(function (f) {
       h += '<tr><td class="c-fijo c-fact"><input type="text" data-fact="' + f.r.cuit + '" value="' + escapar(facturacion[f.r.cuit] || '') + '" placeholder="Ej.: 400/430 MILL"></td>' +
-        '<td class="c-fijo c-emp"><strong>' + escapar(f.r.nombre || f.r.referencia || fmtCuit(f.r.cuit)) + '</strong><span class="ayuda">' + fmtCuit(f.r.cuit) + '</span></td>';
+        '<td class="c-fijo c-emp">' + (f.r.nombre || f.r.referencia ? '<strong>' + escapar(f.r.nombre || f.r.referencia) + '</strong>' : inputNombre(f.r)) + '<span class="ayuda">' + fmtCuit(f.r.cuit) + '</span></td>';
       f.celdas.forEach(function (c) {
         if (!c) { h += '<td class="der">–</td><td></td><td class="c-fin"></td>'; return; }
         var v = c.variacion;
@@ -875,6 +875,28 @@
     return ws;
   }
 
+  // Nombre escrito a mano para un CUIT sin nombre en el BCRA: se guarda en su renglón de la lista.
+  function ponerNombre(cat, cuit, nombre) {
+    nombre = String(nombre || '').replace(/[\r\n]+/g, ' ').trim();
+    var renglones = String(listas[cat] || '').split(/\r?\n/), hecho = false;
+    renglones = renglones.map(function (renglon) {
+      var m = renglon.match(/(\d{2})[\s.\-\/]?(\d{8})[\s.\-\/]?(\d)(?!\d)/);
+      if (hecho || !m || m[1] + m[2] + m[3] !== cuit) return renglon;
+      hecho = true;
+      return fmtCuit(cuit) + (nombre ? '  ' + nombre : '');
+    });
+    if (!hecho) renglones.push(fmtCuit(cuit) + (nombre ? '  ' + nombre : ''));
+    listas[cat] = renglones.join('\n');
+    if (cat === catActual) $('cuits').value = listas[cat];
+    guardarListas();
+    resultados.forEach(function (r) { if (r.cuit === cuit && r.categoria === cat) r.referencia = nombre; });
+    renderLista();
+    renderTabla();
+  }
+  function inputNombre(r) {
+    return '<input type="text" class="input-nombre" data-nombre="' + r.cuit + '" data-cat="' + r.categoria + '" placeholder="Escribir nombre" title="El BCRA no informa el nombre de este CUIT: escribilo y queda guardado">';
+  }
+
   function renderTabla() {
     var tb = $('tabla-resultados');
     if (!consultando && !resultados.length) return;
@@ -886,7 +908,7 @@
     tb.innerHTML = resultados.map(function (r, i) {
       if (filtro && r.categoria !== filtro) return '';
       var cat = '<td class="nowrap">' + escapar(nombreCat(r.categoria)) + '</td>';
-      var nombre = escapar(r.nombre || r.referencia || '');
+      var nombre = r.nombre || r.referencia ? escapar(r.nombre || r.referencia) : inputNombre(r);
       if (r.nombre && r.referencia && r.referencia !== r.nombre) nombre += '<br><span class="ayuda">' + escapar(r.referencia) + '</span>';
       if (r.error) {
         return '<tr><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre + '</td>' + cat + '<td colspan="6"><span class="sit sit-err">Error</span> ' + escapar(r.error) + '</td></tr>';
@@ -1054,7 +1076,15 @@
     $('cuadro-meses').addEventListener('change', renderCuadro);
     arrastrable($('cuadro'));
     window.addEventListener('resize', ajustarFijas);
+    function cambioNombre(e) {
+      var c = e.target.getAttribute && e.target.getAttribute('data-nombre');
+      if (!c || !e.target.value.trim()) return false;
+      ponerNombre(e.target.getAttribute('data-cat'), c, e.target.value);
+      return true;
+    }
+    $('tabla-resultados').addEventListener('change', cambioNombre);
     $('cuadro').addEventListener('change', function (e) {
+      if (cambioNombre(e)) return;
       var c = e.target.getAttribute('data-fact');
       if (!c) return;
       if (e.target.value.trim()) facturacion[c] = e.target.value.trim(); else delete facturacion[c];
@@ -1168,6 +1198,7 @@
       tip.style.top = yy + 'px';
     });
     $('tabla-resultados').addEventListener('click', function (e) {
+      if (e.target.closest('input')) return;
       var bp = e.target.closest('[data-pdf]');
       if (bp) { window.ReportePDF.individual([resultados[Number(bp.getAttribute('data-pdf'))]]); return; }
       if (e.target.closest('.bcra-detalle')) return;

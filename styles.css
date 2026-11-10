@@ -155,3 +155,5 @@ label.etiqueta { display: block; }
 .lista-cuits .l-sin { color: var(--gris); font-style: italic; font-size: .88rem; }
 #nombres-estado:empty { display: none; }
 .det-botones { margin: 0 0 10px; justify-content: flex-end; }
+.input-nombre { width: 100%; max-width: 220px; padding: 4px 8px; border: 1px dashed var(--aviso-borde); border-radius: 6px; background: var(--aviso); font: inherit; font-size: .88rem; }
+.cuadro .c-emp .input-nombre { max-width: 170px; }
