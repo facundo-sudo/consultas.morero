@@ -258,7 +258,7 @@
   // Nombre en la lista: el del BCRA y, si escribiste otro, también ese.
   function htmlNombreLista(x) {
     var bcra = nombresBcra[x.cuit] || '', propio = x.referencia || '';
-    if (!bcra && !propio) return '<span class="l-sin">Sin nombre (tocá «Traer nombres»)</span>';
+    if (!bcra && !propio) return '<span class="l-sin">Sin nombre: no figura en el BCRA (tomalo del Excel con «Importar Excel»)</span>';
     if (!bcra) return escapar(propio);
     if (!propio || propio.toLowerCase() === bcra.toLowerCase()) return escapar(bcra);
     return escapar(bcra) + ' <span class="l-ref">· ' + escapar(propio) + '</span>';
@@ -809,7 +809,7 @@
   function arrastrable(el) {
     var activo = false, x0 = 0, y0 = 0, sl = 0, st = 0, movio = false;
     el.addEventListener('mousedown', function (e) {
-      if (e.button !== 0 || e.target.closest('input, select, button, a')) return;
+      if (e.button !== 0 || e.target.closest('input, select, button, a, summary, details')) return;
       activo = true; movio = false;
       x0 = e.clientX; y0 = e.clientY; sl = el.scrollLeft; st = el.scrollTop;
       el.classList.add('arrastrando');
@@ -897,8 +897,11 @@
     renderLista();
     renderTabla();
   }
+  // CUIT sin nombre (no figura en el BCRA): se toma del Excel importado; si no, se puede escribir.
   function inputNombre(r) {
-    return '<input type="text" class="input-nombre" data-nombre="' + r.cuit + '" data-cat="' + r.categoria + '" placeholder="Escribir nombre" title="El BCRA no informa el nombre de este CUIT: escribilo y queda guardado">';
+    return '<span class="sin-nombre">Sin nombre en el BCRA</span> ' +
+      '<button type="button" class="boton-texto boton-mini" data-tomar-excel="' + r.categoria + '" title="Importá el Excel con CUIT y nombre: los CUIT sin nombre lo toman de ahí">Tomar del Excel</button>' +
+      '<details class="escribir-nombre"><summary>o escribirlo</summary><input type="text" class="input-nombre" data-nombre="' + r.cuit + '" data-cat="' + r.categoria + '" placeholder="Nombre"></details>';
   }
 
   function renderTabla() {
@@ -1107,6 +1110,15 @@
       return true;
     }
     $('tabla-resultados').addEventListener('change', cambioNombre);
+    // «Tomar del Excel»: abre el importador en la categoría de ese CUIT.
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('[data-tomar-excel]');
+      if (!b) return;
+      e.stopPropagation();
+      var cat = b.getAttribute('data-tomar-excel');
+      if (cat && cat !== catActual) elegirCategoria(cat);
+      $('archivo-excel').click();
+    }, true);
     $('cuadro').addEventListener('change', function (e) {
       if (cambioNombre(e)) return;
       var c = e.target.getAttribute('data-fact');
@@ -1222,7 +1234,7 @@
       tip.style.top = yy + 'px';
     });
     $('tabla-resultados').addEventListener('click', function (e) {
-      if (e.target.closest('input')) return;
+      if (e.target.closest('input, details, [data-tomar-excel]')) return;
       var bp = e.target.closest('[data-pdf]');
       if (bp) { window.ReportePDF.individual([resultados[Number(bp.getAttribute('data-pdf'))]]); return; }
       if (e.target.closest('.bcra-detalle')) return;

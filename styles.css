@@ -157,3 +157,8 @@ label.etiqueta { display: block; }
 .det-botones { margin: 0 0 10px; justify-content: flex-end; }
 .input-nombre { width: 100%; max-width: 220px; padding: 4px 8px; border: 1px dashed var(--aviso-borde); border-radius: 6px; background: var(--aviso); font: inherit; font-size: .88rem; }
 .cuadro .c-emp .input-nombre { max-width: 170px; }
+.sin-nombre { color: var(--gris); font-style: italic; font-size: .88rem; }
+.boton-mini { padding: 0 2px; min-height: 0; font-size: .85rem; font-weight: 600; cursor: pointer; }
+.escribir-nombre { display: inline-block; margin-left: 4px; font-size: .8rem; }
+.escribir-nombre summary { cursor: pointer; color: var(--gris); }
+.escribir-nombre[open] { display: block; margin: 4px 0 0; }
