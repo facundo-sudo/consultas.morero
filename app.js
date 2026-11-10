@@ -876,9 +876,8 @@
   }
 
   // Nombre escrito a mano para un CUIT sin nombre en el BCRA: se guarda en su renglón de la lista.
-  function ponerNombre(cat, cuit, nombre) {
-    nombre = String(nombre || '').replace(/[\r\n]+/g, ' ').trim();
-    var renglones = String(listas[cat] || '').split(/\r?\n/), hecho = false;
+  function conNombre(texto, cuit, nombre) {
+    var renglones = String(texto || '').split(/\r?\n/), hecho = false;
     renglones = renglones.map(function (renglon) {
       var m = renglon.match(/(\d{2})[\s.\-\/]?(\d{8})[\s.\-\/]?(\d)(?!\d)/);
       if (hecho || !m || m[1] + m[2] + m[3] !== cuit) return renglon;
@@ -886,7 +885,12 @@
       return fmtCuit(cuit) + (nombre ? '  ' + nombre : '');
     });
     if (!hecho) renglones.push(fmtCuit(cuit) + (nombre ? '  ' + nombre : ''));
-    listas[cat] = renglones.join('\n');
+    return renglones.join('\n');
+  }
+
+  function ponerNombre(cat, cuit, nombre) {
+    nombre = String(nombre || '').replace(/[\r\n]+/g, ' ').trim();
+    listas[cat] = conNombre(listas[cat], cuit, nombre);
     if (cat === catActual) $('cuits').value = listas[cat];
     guardarListas();
     resultados.forEach(function (r) { if (r.cuit === cuit && r.categoria === cat) r.referencia = nombre; });
@@ -1034,7 +1038,16 @@
               if (d.length === 11 && j !== colCat && j !== colFact) {
                 if (colFact >= 0 && String(fila[colFact]).trim()) facturacion[d] = String(fila[colFact]).trim();
                 var cat = (colCat >= 0 && categoriaDeTexto(fila[colCat])) || catHoja || catActual;
-                (porCat[cat] = porCat[cat] || []).push(fmtCuit(d) + (colNombre >= 0 && fila[colNombre] ? '  ' + String(fila[colNombre]).trim() : ''));
+                var nom = colNombre >= 0 ? String(fila[colNombre] || '').trim() : '';
+                if (!nom) {
+                  // Sin columna de nombre reconocida: el primer texto de la fila que no sea CUIT, categoría ni facturación.
+                  for (var k = 0; k < fila.length && !nom; k++) {
+                    if (k === j || k === colCat || k === colFact) continue;
+                    var t = String(fila[k] || '').trim();
+                    if (/[a-záéíóúñ]{2}/i.test(t) && !/^\d/.test(t)) nom = t;
+                  }
+                }
+                (porCat[cat] = porCat[cat] || []).push({ cuit: d, nombre: nom.replace(/\s+/g, ' ') });
                 total++;
                 hojaUsada = true;
                 break;
@@ -1049,16 +1062,27 @@
         CATEGORIAS.forEach(function (c) {
           if (!porCat[c.id]) return;
           var ya = {};
-          leerLista(listas[c.id] || '', c.id).forEach(function (x) { ya[x.cuit] = true; });
-          var nuevos = porCat[c.id].filter(function (r) { var d = soloNumeros(r).slice(0, 11); if (ya[d]) return false; ya[d] = true; return true; });
+          leerLista(listas[c.id] || '', c.id).forEach(function (x) { ya[x.cuit] = x.referencia || ' '; });
+          var nuevos = [], conNombreNuevo = 0;
+          porCat[c.id].forEach(function (x) {
+            if (ya[x.cuit] === undefined) { nuevos.push(fmtCuit(x.cuit) + (x.nombre ? '  ' + x.nombre : '')); ya[x.cuit] = x.nombre || ' '; return; }
+            // Ya estaba en la lista sin nombre: se le pone el del Excel.
+            if (ya[x.cuit] === ' ' && x.nombre) { listas[c.id] = conNombre(listas[c.id], x.cuit, x.nombre); ya[x.cuit] = x.nombre; conNombreNuevo++; }
+          });
           if (nuevos.length) {
             var actual = String(listas[c.id] || '').replace(/\s+$/, '');
             listas[c.id] = (actual ? actual + '\n' : '') + nuevos.join('\n');
           }
-          resumen.push(c.nombre + ': ' + nuevos.length + (nuevos.length === 1 ? ' nuevo' : ' nuevos'));
+          resumen.push(c.nombre + ': ' + nuevos.length + (nuevos.length === 1 ? ' nuevo' : ' nuevos') +
+            (conNombreNuevo ? ', ' + conNombreNuevo + ' con nombre agregado' : ''));
         });
         $('cuits').value = listas[catActual] || '';
+        resultados.forEach(function (r) {
+          var x = leerLista(listas[r.categoria] || '', r.categoria).filter(function (y) { return y.cuit === r.cuit; })[0];
+          if (x && x.referencia && !r.referencia) r.referencia = x.referencia;
+        });
         actualizarEstadoLista();
+        renderTabla();
         alert('Excel importado (' + total + ' CUIT leídos).\n' + resumen.join('\n'));
       } catch (e) {
         alert('No se pudo leer el Excel: ' + e.message);
