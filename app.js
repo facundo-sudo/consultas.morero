@@ -402,20 +402,27 @@
     return r;
   }
 
+  // Cheques rechazados. Lo esperado es causales[].entidades[].detalle[], pero se recorre todo
+  // el resultado buscando los cheques (objetos con número o fecha de rechazo), por si cambia la forma.
   function resumirCheques(res) {
     var lista = [];
     if (!res || res.sinDatos) return lista;
-    (res.causales || []).forEach(function (c) {
-      (c.entidades || []).forEach(function (e) {
-        (e.detalle || []).forEach(function (d) {
-          lista.push({
-            causal: c.causal, entidad: e.entidad, nro: d.nroCheque, fecha: d.fechaRechazo, monto: d.monto,
-            fechaPago: d.fechaPago, fechaPagoMulta: d.fechaPagoMulta, estadoMulta: d.estadoMulta,
-            procesoJud: d.procesoJud, enRevision: d.enRevision
-          });
+    function recorrer(o, causal, entidad) {
+      if (Array.isArray(o)) { o.forEach(function (x) { recorrer(x, causal, entidad); }); return; }
+      if (!o || typeof o !== 'object') return;
+      if (o.causal != null) causal = o.causal;
+      if (o.entidad != null && typeof o.entidad !== 'object') entidad = o.entidad;
+      if (o.nroCheque != null || o.fechaRechazo != null) {
+        lista.push({
+          causal: causal || '', entidad: entidad != null ? entidad : '', nro: o.nroCheque, fecha: o.fechaRechazo, monto: o.monto,
+          fechaPago: o.fechaPago, fechaPagoMulta: o.fechaPagoMulta, estadoMulta: o.estadoMulta,
+          procesoJud: o.procesoJud, enRevision: o.enRevision
         });
-      });
-    });
+        return;
+      }
+      Object.keys(o).forEach(function (k) { if (o[k] && typeof o[k] === 'object') recorrer(o[k], causal, entidad); });
+    }
+    recorrer(res.causales || res, '', null);
     return lista;
   }
 
