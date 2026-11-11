@@ -338,13 +338,13 @@
       y = subtitulo(doc, 'Resumen', y);
       y = tabla(doc, {
         startY: y,
-        head: [['Empresa', 'CUIT', 'Categoría', 'Período', 'Peor situación', 'Puntaje', 'Deuda total ($)', 'Deuda total (US$)', 'Entidades', 'Cheques rech.', 'Deuda s/ fact.']],
+        head: [['Empresa', 'CUIT', 'Categoría', 'Período', 'Peor situación', 'Puntaje', 'Deuda total ($)', 'Deuda total (US$)', 'Entidades', 'Cheques rech.'].concat(opciones.fact !== false ? ['Deuda s/ fact.'] : [])],
         body: lista.map(function (r) {
           var d = r.deudas || { entidades: [], total: 0 }, pj = Cx.puntaje(r);
           return [r.nombre || r.referencia || '', Cx.fmtCuit(r.cuit), Cx.nombreCat(r.categoria), Cx.fmtPeriodo(d.periodo),
             d.peor ? d.peor + ' · ' + Cx.nombreSit(d.peor) : 'Sin deudas', pj == null ? '-' : String(pj),
             d.entidades.length ? pesos(d.total * 1000) : '-', d.entidades.length ? usd(Cx.enDolares(d.total, d.periodo)) : '-',
-            String(d.entidades.length), r.cheques ? String(r.cheques.length) : '-', sf[r.cuit] != null ? pct(sf[r.cuit]) : ''];
+            String(d.entidades.length), r.cheques ? String(r.cheques.length) : '-'].concat(opciones.fact !== false ? [sf[r.cuit] != null ? pct(sf[r.cuit]) : ''] : []);
         }),
         columnStyles: { 5: { halign: 'center' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'center' }, 9: { halign: 'center' }, 10: { halign: 'right' } },
         didParseCell: function (h) {
@@ -364,60 +364,72 @@
         doc.text('Para el cuadro mensual hay que consultar con «Historial y gráfico de los últimos 24 meses» tildado.', M, y + 3);
       }
       if (opciones.cuadro && dc.meses.length && dc.filas.length) {
-        // Hasta 6 meses por bloque, repartidos parejo (8 meses: 4 + 4; 12: 6 + 6; 24: 6 x 4).
-        var porBloque = Math.ceil(dc.meses.length / Math.ceil(dc.meses.length / 6));
+        // Columnas de facturación (al principio) y de deuda s/ facturación (al final): opcionales.
+        var conFact = opciones.fact !== false;
+        var ANCHO_FACT = 22, ANCHO_EMP = 40, ANCHO_FINAL = 17, ANCHO_MES = 26.5;
+        var anchoUtil = doc.internal.pageSize.getWidth() - 2 * M;
+        // Cuántos meses entran a lo ancho; se reparten parejo entre los bloques (por ejemplo 12 meses sin facturación: 6 + 6).
+        var maxMeses = Math.max(1, Math.floor((anchoUtil - ANCHO_EMP - (conFact ? ANCHO_FACT + ANCHO_FINAL : 0)) / ANCHO_MES));
+        var porBloque = Math.ceil(dc.meses.length / Math.ceil(dc.meses.length / maxMeses));
+        var base = conFact ? 2 : 1; // primera columna de meses
         var bloques = [];
         for (var i = 0; i < dc.meses.length; i += porBloque) bloques.push(i);
         bloques.forEach(function (ini, b) {
-          var meses = dc.meses.slice(ini, ini + porBloque), ultimo = b === bloques.length - 1;
+          var meses = dc.meses.slice(ini, ini + porBloque), ultimo = b === bloques.length - 1, final = conFact && ultimo;
           y = lugar(doc, y, 40, titulo, sub);
           y = subtitulo(doc, 'Cuadro mensual' + (bloques.length > 1 ? ' (' + (b + 1) + ' de ' + bloques.length + ')' : '') + ' · importes en millones', y);
-          var fila1 = [{ content: 'Facturación aprox.', rowSpan: 3 }, { content: 'Empresa', rowSpan: 3 }];
+          var fila1 = conFact ? [{ content: 'Facturación aprox.', rowSpan: 3 }] : [];
+          fila1.push({ content: 'Empresa', rowSpan: 3 });
           var fila2 = [], fila3 = [];
           meses.forEach(function (m) {
             fila1.push({ content: Cx.MESES_LARGOS[Number(m.slice(4)) - 1] + ' ' + m.slice(0, 4), colSpan: 3 });
             var t = Cx.tcCuadro(m);
-            fila2.push({ content: t ? 'US$ 1 = $ ' + Cx.fmtTc(t) + (Cx.tcEsDeHoy(m) ? ' (de hoy)' : '') : 'Falta el dólar', colSpan: 3 });
-            fila3.push('$ (M)', 'US$ (M)', 'Var.');
+            fila2.push({ content: t ? 'US$ 1 = $ ' + Cx.fmtTc(t) + (Cx.tcEsDeHoy(m) ? ' (hoy)' : '') : 'Falta el dólar', colSpan: 3 });
+            fila3.push('$', 'US$', 'Var.');
           });
-          if (ultimo) fila1.push({ content: 'Deuda s/ fact.\n(' + Cx.fmtPeriodo(dc.meses[dc.meses.length - 1]) + ')', rowSpan: 3 });
+          if (final) fila1.push({ content: 'Deuda s/ fact.\n(' + Cx.fmtPeriodo(dc.meses[dc.meses.length - 1]) + ')', rowSpan: 3 });
           var body = dc.filas.map(function (f) {
-            var fila = [Cx.facturacion(f.r.cuit), f.r.nombre || f.r.referencia || Cx.fmtCuit(f.r.cuit)];
+            var fila = conFact ? [Cx.facturacion(f.r.cuit)] : [];
+            fila.push(f.r.nombre || f.r.referencia || Cx.fmtCuit(f.r.cuit));
             f.celdas.slice(ini, ini + porBloque).forEach(function (c) {
               if (!c) { fila.push('-', '', ''); return; }
               var v = c.variacion;
               fila.push(millones(c.pesos), c.usd === null ? '-' : millones(c.usd, 1), v === null ? '' : (v > 0 ? '+' : v < 0 ? '-' : '') + pct(Math.abs(v), 1));
             });
-            if (ultimo) fila.push(f.sobreFact === null ? '' : pct(f.sobreFact));
+            if (final) fila.push(f.sobreFact === null ? '' : pct(f.sobreFact));
             return fila;
           });
-          var cols = { 0: { cellWidth: 24 }, 1: { cellWidth: 46 } };
-          var anchoMeses = doc.internal.pageSize.getWidth() - 2 * M - 70 - (ultimo ? 20 : 0);
-          var w = anchoMeses / (meses.length * 3);
-          for (var k = 0; k < meses.length * 3; k++) cols[2 + k] = { halign: 'right', cellWidth: w };
-          if (ultimo) cols[2 + meses.length * 3] = { halign: 'right', cellWidth: 20, fontStyle: 'bold' };
+          var cols = {};
+          if (conFact) cols[0] = { cellWidth: ANCHO_FACT };
+          cols[base - 1] = { cellWidth: ANCHO_EMP };
+          // El ancho que sobra se reparte entre los meses (pesos un poco más ancho que dólares y variación).
+          var anchoMeses = anchoUtil - ANCHO_EMP - (conFact ? ANCHO_FACT : 0) - (final ? ANCHO_FINAL : 0);
+          var porMes = Math.min(anchoMeses / meses.length, 34);
+          for (var k = 0; k < meses.length * 3; k++) cols[base + k] = { halign: 'right', cellWidth: porMes * [0.38, 0.31, 0.31][k % 3] };
+          if (final) cols[base + meses.length * 3] = { halign: 'right', cellWidth: ANCHO_FINAL, fontStyle: 'bold' };
           y = tabla(doc, {
             startY: y,
             head: [fila1, fila2, fila3],
             body: body,
-            styles: { font: 'helvetica', fontSize: 6.8, cellPadding: 1.2, lineColor: [225, 225, 228], lineWidth: 0.2, textColor: TEXTO, overflow: 'linebreak' },
-            headStyles: { fillColor: GRIS_CLARO, textColor: GRIS, fontStyle: 'bold', halign: 'center', valign: 'middle' },
+            styles: { font: 'helvetica', fontSize: 6.3, cellPadding: { top: 1, bottom: 1, left: 0.8, right: 0.8 }, lineColor: [225, 225, 228], lineWidth: 0.2, textColor: TEXTO, overflow: 'linebreak' },
+            headStyles: { fillColor: GRIS_CLARO, textColor: GRIS, fontStyle: 'bold', halign: 'center', valign: 'middle', fontSize: 6.2 },
             columnStyles: cols,
             didParseCell: function (h) {
               if (h.section !== 'body') return;
               var col = h.column.index;
-              if (col >= 2 && col < 2 + meses.length * 3 && (col - 2) % 3 === 2) {
+              if (col >= base && col < base + meses.length * 3 && (col - base) % 3 === 2) {
                 var t = String(h.cell.raw);
                 if (t[0] === '+') h.cell.styles.textColor = BORDO;
                 else if (t[0] === '-' && t.length > 1) h.cell.styles.textColor = COLOR_SIT[1];
               }
-              if (ultimo && col === 2 + meses.length * 3) colorSobreFact(h, String(h.cell.raw));
+              if (final && col === base + meses.length * 3) colorSobreFact(h, String(h.cell.raw));
             }
           });
         });
         doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor.apply(doc, GRIS);
         y = lugar(doc, y, 10, titulo, sub);
-        doc.text('Variación: contra la deuda del mes anterior, en dólares (+ sube, - baja). Deuda s/ fact.: deuda del último mes en dólares sobre la facturación aproximada (se toma el número más alto del rango).', M, y, { maxWidth: doc.internal.pageSize.getWidth() - 2 * M });
+        doc.text('Importes en millones de pesos ($) y de dólares (US$). Variación: contra la deuda del mes anterior, en dólares (+ sube, - baja).' +
+          (conFact ? ' Deuda s/ fact.: deuda del último mes en dólares sobre la facturación aproximada (se toma el número más alto del rango).' : ''), M, y, { maxWidth: doc.internal.pageSize.getWidth() - 2 * M });
       }
 
       piePaginas(doc, 'Fuente: Central de Deudores del BCRA. Dólar: Banco Nación, Divisas, vendedor (de cada mes; si falta, el de hoy). El puntaje propio no es el score de Nosis ni de otro buró.');
@@ -449,6 +461,7 @@
       try { guardado = JSON.parse(localStorage.getItem('consulta-bcra.pdf-grupo') || '{}') || {}; } catch (e) { guardado = {}; }
       document.getElementById('pdf-op-resumen').checked = guardado.resumen !== false;
       document.getElementById('pdf-op-cuadro').checked = guardado.cuadro !== false;
+      document.getElementById('pdf-op-fact').checked = guardado.fact !== false;
       document.getElementById('pdf-op-aviso').hidden = true;
       dlg.showModal();
     });
@@ -457,7 +470,8 @@
       document.getElementById(id).addEventListener('change', function () { document.getElementById('pdf-op-aviso').hidden = true; });
     });
     document.getElementById('pdf-op-generar').addEventListener('click', function () {
-      var op = { resumen: document.getElementById('pdf-op-resumen').checked, cuadro: document.getElementById('pdf-op-cuadro').checked };
+      var op = { resumen: document.getElementById('pdf-op-resumen').checked, cuadro: document.getElementById('pdf-op-cuadro').checked,
+        fact: document.getElementById('pdf-op-fact').checked };
       if (!op.resumen && !op.cuadro) { document.getElementById('pdf-op-aviso').hidden = false; return; }
       try { localStorage.setItem('consulta-bcra.pdf-grupo', JSON.stringify(op)); } catch (e) { /* nada */ }
       dlg.close();

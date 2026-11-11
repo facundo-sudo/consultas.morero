@@ -171,3 +171,4 @@ label.etiqueta { display: block; }
 .resultados-cab .solapas-chicas { margin: 0; }
 .orden-lbl { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
 .orden-lbl select { padding: 5px 8px; border: 1px solid var(--borde); border-radius: 8px; font: inherit; color: var(--texto); }
+.dialogo-nota { margin: -4px 0 0 26px; }
