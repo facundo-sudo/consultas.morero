@@ -754,7 +754,7 @@
         r: r, celdas: celdas, orden: ultima ? ultima.pesos : -1,
         sobreFact: fact && usdFinal !== null ? usdFinal / fact : null
       };
-    }).sort(function (x, y) { return y.orden - x.orden; });
+    }).sort(function (x, y) { return comparar(x.r, y.r); });
     return { meses: meses, filas: filasC };
   }
 
@@ -911,6 +911,25 @@
       '<details class="escribir-nombre"><summary>o escribirlo</summary><input type="text" class="input-nombre" data-nombre="' + r.cuit + '" data-cat="' + r.categoria + '" placeholder="Nombre"></details>';
   }
 
+  // Orden de los resultados (tabla, cuadro, PDF y Excel): deuda mayor a menor, menor a mayor, o nombre.
+  var CLAVE_ORDEN = 'consulta-bcra.orden';
+  var orden = 'deuda-desc';
+  try { orden = localStorage.getItem(CLAVE_ORDEN) || 'deuda-desc'; } catch (e) { /* nada */ }
+  function nombreDe(r) { return String(r.nombre || r.referencia || '').trim(); }
+  function deudaDe(r) { return r.deudas && r.deudas.entidades && r.deudas.entidades.length ? r.deudas.total : 0; }
+  function porNombre(a, b) {
+    var na = nombreDe(a), nb = nombreDe(b);
+    if (!na !== !nb) return na ? -1 : 1; // los que no tienen nombre, al final
+    return na.localeCompare(nb, 'es', { sensitivity: 'base' }) || a.cuit.localeCompare(b.cuit);
+  }
+  function comparar(a, b) {
+    if (!a.error !== !b.error) return a.error ? 1 : -1; // los que dieron error, al final
+    if (orden === 'nombre') return porNombre(a, b);
+    var d = orden === 'deuda-asc' ? deudaDe(a) - deudaDe(b) : deudaDe(b) - deudaDe(a);
+    return d || porNombre(a, b);
+  }
+  function ordenados(lista) { return lista.slice().sort(comparar); }
+
   function renderTabla() {
     var tb = $('tabla-resultados');
     if (!consultando && !resultados.length) return;
@@ -919,7 +938,8 @@
     // Recordar qué detalles estaban abiertos, para no cerrarlos al volver a dibujar.
     var abiertos = {};
     tb.querySelectorAll('.bcra-detalle').forEach(function (d) { if (!d.hidden) abiertos[d.getAttribute('data-det')] = true; });
-    tb.innerHTML = resultados.map(function (r, i) {
+    tb.innerHTML = ordenados(resultados).map(function (r) {
+      var i = resultados.indexOf(r);
       if (filtro && r.categoria !== filtro) return '';
       var cat = '<td class="nowrap">' + escapar(nombreCat(r.categoria)) + '</td>';
       var nombre = r.nombre || r.referencia ? escapar(r.nombre || r.referencia) : inputNombre(r);
@@ -942,7 +962,7 @@
   // ---------------------------------------------------------------------------
   function bajarExcel() {
     if (!resultados.length) { alert('Primero hay que consultar.'); return; }
-    var elegidos = resultados.filter(function (r) { return !filtro || r.categoria === filtro; });
+    var elegidos = ordenados(resultados.filter(function (r) { return !filtro || r.categoria === filtro; }));
     var resumen = elegidos.map(function (r) {
       var d = r.deudas || { entidades: [] };
       return {
@@ -1206,6 +1226,13 @@
     $('btn-consultar-todas').addEventListener('click', function () { consultar(true); });
     $('btn-detener').addEventListener('click', function () { detener = true; $('progreso').textContent = 'Deteniendo…'; });
     $('btn-excel').addEventListener('click', bajarExcel);
+    $('orden').value = orden;
+    if ($('orden').value !== orden) { orden = 'deuda-desc'; $('orden').value = orden; }
+    $('orden').addEventListener('change', function () {
+      orden = this.value;
+      try { localStorage.setItem(CLAVE_ORDEN, orden); } catch (e) { /* nada */ }
+      renderTabla();
+    });
     function nuevaConsulta() {
       if (consultando) { detener = true; }
       resultados = [];
@@ -1255,7 +1282,7 @@
   // Lo que necesita pdf.js para armar los reportes.
   window.ConsultaBCRA = {
     resultados: function () { return resultados; },
-    visibles: function () { return resultados.filter(function (r) { return !filtro || r.categoria === filtro; }); },
+    visibles: function () { return ordenados(resultados.filter(function (r) { return !filtro || r.categoria === filtro; })); },
     filtro: function () { return filtro; },
     nombreCat: nombreCat, fmtCuit: fmtCuit, fmtPeriodo: fmtPeriodo, fmtFecha: fmtFecha, fmtTc: fmtTc,
     nombreSit: nombreSit, SITUACIONES: SITUACIONES, MESES: MESES, MESES_LARGOS: MESES_LARGOS,

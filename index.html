@@ -83,7 +83,16 @@
     <section class="tarjeta" id="sec-resultados" hidden>
       <h2><span class="num">3</span> Resultados</h2>
       <p class="ayuda">Último período informado por cada entidad. Los montos están en pesos (el BCRA los informa en miles) y, debajo, en dólares. Tocá un renglón para ver el detalle.</p>
-      <div class="solapas solapas-chicas" id="filtros"></div>
+      <div class="resultados-cab">
+        <div class="solapas solapas-chicas" id="filtros"></div>
+        <label class="orden-lbl">Ordenar por
+          <select id="orden">
+            <option value="deuda-desc">Deuda (mayor a menor)</option>
+            <option value="deuda-asc">Deuda (menor a mayor)</option>
+            <option value="nombre">Nombre (A-Z)</option>
+          </select>
+        </label>
+      </div>
       <div class="bcra-tabla-cont">
         <table class="bcra-tabla">
           <thead>

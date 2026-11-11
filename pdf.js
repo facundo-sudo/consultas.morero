@@ -339,7 +339,7 @@
       y = tabla(doc, {
         startY: y,
         head: [['Empresa', 'CUIT', 'Categoría', 'Período', 'Peor situación', 'Puntaje', 'Deuda total ($)', 'Deuda total (US$)', 'Entidades', 'Cheques rech.', 'Deuda s/ fact.']],
-        body: lista.slice().sort(function (a, b) { return ((b.deudas && b.deudas.total) || 0) - ((a.deudas && a.deudas.total) || 0); }).map(function (r) {
+        body: lista.map(function (r) {
           var d = r.deudas || { entidades: [], total: 0 }, pj = Cx.puntaje(r);
           return [r.nombre || r.referencia || '', Cx.fmtCuit(r.cuit), Cx.nombreCat(r.categoria), Cx.fmtPeriodo(d.periodo),
             d.peor ? d.peor + ' · ' + Cx.nombreSit(d.peor) : 'Sin deudas', pj == null ? '-' : String(pj),

@@ -167,3 +167,7 @@ label.etiqueta { display: block; }
 .dialogo h3 { margin: 0 0 4px; color: var(--bordo); }
 .dialogo-opciones { display: grid; gap: 10px; margin: 12px 0; }
 .aviso-error { color: var(--bordo); font-weight: 600; margin: 0 0 8px; }
+.resultados-cab { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 10px 0; }
+.resultados-cab .solapas-chicas { margin: 0; }
+.orden-lbl { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.orden-lbl select { padding: 5px 8px; border: 1px solid var(--borde); border-radius: 8px; font: inherit; color: var(--texto); }
