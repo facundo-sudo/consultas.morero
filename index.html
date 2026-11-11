@@ -140,6 +140,19 @@
     </section>
   </main>
 
+  <dialog id="dlg-pdf-grupo" class="dialogo">
+    <h3>PDF del grupo</h3>
+    <p class="ayuda">¿Qué querés incluir?</p>
+    <div class="dialogo-opciones">
+      <label class="check"><input type="checkbox" id="pdf-op-resumen" checked> Resumen (una fila por empresa)</label>
+      <label class="check"><input type="checkbox" id="pdf-op-cuadro" checked> Cuadro mensual (meses)</label>
+    </div>
+    <p id="pdf-op-aviso" class="aviso-error" hidden>Tildá al menos uno.</p>
+    <div class="botones">
+      <button type="button" class="boton boton-primario" id="pdf-op-generar">Generar PDF</button>
+      <button type="button" class="boton" id="pdf-op-cancelar">Cancelar</button>
+    </div>
+  </dialog>
   <div id="tip" class="tip" hidden></div>
   <script src="vendor/xlsx.full.min.js"></script>
   <script src="vendor/jspdf.umd.min.js"></script>

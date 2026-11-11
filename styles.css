@@ -162,3 +162,8 @@ label.etiqueta { display: block; }
 .escribir-nombre { display: inline-block; margin-left: 4px; font-size: .8rem; }
 .escribir-nombre summary { cursor: pointer; color: var(--gris); }
 .escribir-nombre[open] { display: block; margin: 4px 0 0; }
+.dialogo { border: 1px solid var(--borde); border-radius: var(--radio); padding: 20px; max-width: 420px; width: calc(100% - 32px); color: var(--texto); background: var(--blanco); }
+.dialogo::backdrop { background: rgba(0,0,0,.35); }
+.dialogo h3 { margin: 0 0 4px; color: var(--bordo); }
+.dialogo-opciones { display: grid; gap: 10px; margin: 12px 0; }
+.aviso-error { color: var(--bordo); font-weight: 600; margin: 0 0 8px; }

@@ -318,13 +318,15 @@
   // ---------------------------------------------------------------------------
   // Reporte del grupo (cuadro mensual)
   // ---------------------------------------------------------------------------
-  function grupo() {
+  // opciones: { resumen: true/false, cuadro: true/false }
+  function grupo(opciones) {
+    opciones = opciones || { resumen: true, cuadro: true };
     var Cx = C();
     var lista = Cx.visibles().filter(function (r) { return !r.error; });
     if (!lista.length) { alert('Primero hay que consultar.'); return; }
     cargarLogo().then(function () {
       var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
-      var titulo = 'Deuda bancaria por empresa';
+      var titulo = opciones.resumen ? 'Deuda bancaria por empresa' : 'Cuadro mensual de deuda bancaria';
       var sub = (Cx.filtro() ? Cx.nombreCat(Cx.filtro()) + ' · ' : '') + lista.length + (lista.length === 1 ? ' empresa' : ' empresas') + ' · Central de Deudores del BCRA · emitido ' + hoyTexto();
       var y = encabezado(doc, titulo, sub);
 
@@ -332,6 +334,7 @@
       var dc = Cx.datosCuadro(lista, Cx.cantMeses());
       var sf = {};
       dc.filas.forEach(function (f) { sf[f.r.cuit] = f.sobreFact; });
+      if (opciones.resumen) {
       y = subtitulo(doc, 'Resumen', y);
       y = tabla(doc, {
         startY: y,
@@ -353,9 +356,14 @@
           if (h.column.index === 10) colorSobreFact(h, String(h.cell.raw));
         }
       });
+      }
 
       // Cuadro mensual en bloques de 6 meses (para que entre a lo ancho)
-      if (dc.meses.length && dc.filas.length) {
+      if (opciones.cuadro && !(dc.meses.length && dc.filas.length)) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor.apply(doc, TEXTO);
+        doc.text('Para el cuadro mensual hay que consultar con «Historial y gráfico de los últimos 24 meses» tildado.', M, y + 3);
+      }
+      if (opciones.cuadro && dc.meses.length && dc.filas.length) {
         // Hasta 6 meses por bloque, repartidos parejo (8 meses: 4 + 4; 12: 6 + 6; 24: 6 x 4).
         var porBloque = Math.ceil(dc.meses.length / Math.ceil(dc.meses.length / 6));
         var bloques = [];
@@ -413,7 +421,7 @@
       }
 
       piePaginas(doc, 'Fuente: Central de Deudores del BCRA. Dólar: Banco Nación, Divisas, vendedor (de cada mes; si falta, el de hoy). El puntaje propio no es el score de Nosis ni de otro buró.');
-      doc.save('Deuda bancaria ' + (Cx.filtro() ? Cx.nombreCat(Cx.filtro()) + ' ' : '') + hoyArchivo() + '.pdf');
+      doc.save((opciones.resumen && opciones.cuadro ? 'Deuda bancaria ' : opciones.resumen ? 'Deuda bancaria resumen ' : 'Deuda bancaria cuadro mensual ') + (Cx.filtro() ? Cx.nombreCat(Cx.filtro()) + ' ' : '') + hoyArchivo() + '.pdf');
     });
   }
 
@@ -433,7 +441,28 @@
     var bg = document.getElementById('btn-pdf-grupo'), bi = document.getElementById('btn-pdf-individual');
     if (!bg || !bi) return;
     enganchado = true;
-    bg.addEventListener('click', grupo);
+    // Antes de armar el PDF del grupo se pregunta qué incluir (se recuerda la última elección).
+    var dlg = document.getElementById('dlg-pdf-grupo');
+    bg.addEventListener('click', function () {
+      if (!C().visibles().filter(function (r) { return !r.error; }).length) { alert('Primero hay que consultar.'); return; }
+      var guardado = {};
+      try { guardado = JSON.parse(localStorage.getItem('consulta-bcra.pdf-grupo') || '{}') || {}; } catch (e) { guardado = {}; }
+      document.getElementById('pdf-op-resumen').checked = guardado.resumen !== false;
+      document.getElementById('pdf-op-cuadro').checked = guardado.cuadro !== false;
+      document.getElementById('pdf-op-aviso').hidden = true;
+      dlg.showModal();
+    });
+    document.getElementById('pdf-op-cancelar').addEventListener('click', function () { dlg.close(); });
+    ['pdf-op-resumen', 'pdf-op-cuadro'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', function () { document.getElementById('pdf-op-aviso').hidden = true; });
+    });
+    document.getElementById('pdf-op-generar').addEventListener('click', function () {
+      var op = { resumen: document.getElementById('pdf-op-resumen').checked, cuadro: document.getElementById('pdf-op-cuadro').checked };
+      if (!op.resumen && !op.cuadro) { document.getElementById('pdf-op-aviso').hidden = false; return; }
+      try { localStorage.setItem('consulta-bcra.pdf-grupo', JSON.stringify(op)); } catch (e) { /* nada */ }
+      dlg.close();
+      grupo(op);
+    });
     bi.addEventListener('click', function () { individual(C().visibles()); });
   }
 })();
