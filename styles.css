@@ -172,3 +172,4 @@ label.etiqueta { display: block; }
 .orden-lbl { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
 .orden-lbl select { padding: 5px 8px; border: 1px solid var(--borde); border-radius: 8px; font: inherit; color: var(--texto); }
 .dialogo-nota { margin: -4px 0 0 26px; }
+.marca-alerta { display: block; width: fit-content; margin-top: 4px; background: #f9d3d6; border-color: var(--bordo); color: var(--bordo-oscuro); font-weight: 700; }

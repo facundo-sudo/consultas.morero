@@ -186,6 +186,7 @@
     });
   }
   function esperar(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function fmtPesosEnteros(n) { return '$ ' + Math.round(Number(n) || 0).toLocaleString('es-AR'); }
   function fmtPesos(miles) {
     return '$ ' + Math.round((Number(miles) || 0) * 1000).toLocaleString('es-AR');
   }
@@ -426,6 +427,17 @@
     return lista;
   }
 
+  // Totales de cheques rechazados: cantidad e importe (en pesos), y cuántos siguen sin pagar.
+  function totalCheques(lista) {
+    var t = { cantidad: 0, monto: 0, impagos: 0, montoImpagos: 0 };
+    (lista || []).forEach(function (c) {
+      var m = Number(c.monto) || 0;
+      t.cantidad++; t.monto += m;
+      if (!c.fechaPago) { t.impagos++; t.montoImpagos += m; }
+    });
+    return t;
+  }
+
   function resumirHistoricas(res) {
     if (!res || res.sinDatos) return [];
     return (res.periodos || []).map(function (p) {
@@ -563,11 +575,21 @@
   // ---------------------------------------------------------------------------
   // Tabla de resultados
   // ---------------------------------------------------------------------------
+  // Alertas judiciales que informa el BCRA para alguna entidad: situación jurídica (concurso
+  // preventivo, quiebra u otro proceso concursal) o deuda en proceso judicial.
+  function alertasJuridicas(r) {
+    var ents = (r && r.deudas && r.deudas.entidades) || [], a = [];
+    if (ents.some(function (e) { return e.situacionJuridica; })) a.push('Situación jurídica (concurso/quiebra)');
+    if (ents.some(function (e) { return e.procesoJud; })) a.push('Deuda en proceso judicial');
+    if (!a.length && (r && r.historicas || []).slice(0, 6).some(function (p) { return p.jud; })) a.push('Situación jurídica o proceso judicial en los últimos meses');
+    return a;
+  }
+
   function marcasEntidad(e) {
     var m = [];
     if (e.refinanciaciones) m.push('Refinanciada');
     if (e.recategorizacionOblig) m.push('Recategorización obligatoria');
-    if (e.situacionJuridica) m.push('Situación jurídica');
+    if (e.situacionJuridica) m.push('Situación jurídica (concurso/quiebra)');
     if (e.irrecDisposicionTecnica) m.push('Irrec. disp. técnica');
     if (e.enRevision) m.push('En revisión');
     if (e.procesoJud) m.push('Proceso judicial');
@@ -950,8 +972,10 @@
       var d = r.deudas;
       return '<tr class="bcra-fila" data-i="' + i + '" title="Ver detalle"><td class="nowrap">' + fmtCuit(r.cuit) + '</td><td>' + nombre +
         '</td>' + cat + '<td class="nowrap">' + escapar(fmtPeriodo(d.periodo)) + '</td><td>' + etiquetaSit(d.peor) +
+        alertasJuridicas(r).map(function (x) { return '<span class="marca marca-alerta">⚠ ' + escapar(x) + '</span>'; }).join('') +
         '</td><td>' + etiquetaPuntaje(puntaje(r)) + '</td><td class="der">' + (d.entidades.length ? fmtMonto(d.total, d.periodo) : '—') + '</td><td class="der">' + d.entidades.length +
-        '</td><td class="der">' + (r.cheques ? r.cheques.length : '—') + '</td></tr>' +
+        '</td><td class="der">' + (!r.cheques ? '—' : !r.cheques.length ? '0' :
+          r.cheques.length + '<span class="usd">' + fmtPesosEnteros(totalCheques(r.cheques).monto) + '</span>') + '</td></tr>' +
         '<tr class="bcra-detalle" data-det="' + i + '"' + (abiertos[i] ? '' : ' hidden') + '><td colspan="9">' + htmlDetalle(r) + '</td></tr>';
     }).join('');
     renderCuadro();
@@ -978,7 +1002,11 @@
         'Deuda total (US$)': r.error || !d.entidades.length ? '' : enDolares(d.total, d.periodo),
         'Dólar usado': r.error || !d.entidades.length ? '' : tcPara(d.periodo) || '',
         Entidades: r.error ? '' : d.entidades.length,
-        'Cheques rechazados': r.cheques ? r.cheques.length : ''
+        'Alertas judiciales': r.error ? '' : alertasJuridicas(r).join(', '),
+        'Cheques rechazados': r.cheques ? r.cheques.length : '',
+        'Monto cheques rech. ($)': r.cheques ? Math.round(totalCheques(r.cheques).monto) : '',
+        'Cheques impagos': r.cheques ? totalCheques(r.cheques).impagos : '',
+        'Monto cheques impagos ($)': r.cheques ? Math.round(totalCheques(r.cheques).montoImpagos) : ''
       };
     });
     var detalle = [];
@@ -1287,7 +1315,7 @@
     nombreCat: nombreCat, fmtCuit: fmtCuit, fmtPeriodo: fmtPeriodo, fmtFecha: fmtFecha, fmtTc: fmtTc,
     nombreSit: nombreSit, SITUACIONES: SITUACIONES, MESES: MESES, MESES_LARGOS: MESES_LARGOS,
     enDolares: enDolares, tcPara: tcPara, modoTc: function () { return tc.modo; }, tcHoy: function () { return tc.hoy; },
-    puntaje: puntaje, puntajeMes: puntajeMes, bandaPuntaje: bandaPuntaje, marcasEntidad: marcasEntidad,
+    puntaje: puntaje, puntajeMes: puntajeMes, totalCheques: totalCheques, alertasJuridicas: alertasJuridicas, bandaPuntaje: bandaPuntaje, marcasEntidad: marcasEntidad,
     datosCuadro: datosCuadro, tcCuadro: tcCuadro, tcEsDeHoy: tcEsDeHoy, cantMeses: function () { return Number($('cuadro-meses').value) || 8; },
     facturacion: function (cuit) { return facturacion[cuit] || ''; }
   };

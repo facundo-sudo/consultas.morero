@@ -107,8 +107,11 @@
       while (tam > 6 && doc.getTextWidth(String(it.valor)) > w - 6) { tam -= 0.5; doc.setFontSize(tam); }
       doc.text(String(it.valor), x + 4, y + 12);
       if (it.nota) {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor.apply(doc, GRIS);
-        doc.text(String(it.nota), x + 4, y + 16, { maxWidth: w - 6 });
+        var tn = 7.5;
+        doc.setFont('helvetica', it.notaAlerta ? 'bold' : 'normal'); doc.setFontSize(tn);
+        if (it.notaAlerta) doc.setTextColor.apply(doc, BORDO); else doc.setTextColor.apply(doc, GRIS);
+        while (tn > 5 && doc.getTextWidth(String(it.nota)) > w - 6) { tn -= 0.25; doc.setFontSize(tn); }
+        doc.text(String(it.nota), x + 4, y + 16);
       }
     });
     return y + h + 6;
@@ -210,11 +213,17 @@
     var pj = Cx.puntaje(r), banda = Cx.bandaPuntaje(pj);
     var usdTotal = d.entidades.length ? Cx.enDolares(d.total, d.periodo) : null;
     y = tarjetas(doc, y, [
-      { titulo: 'Peor situación', valor: d.peor ? d.peor + ' · ' + Cx.nombreSit(d.peor) : 'Sin deudas', chico: true, color: COLOR_SIT[d.peor || 0] },
+      { titulo: 'Peor situación', valor: d.peor ? d.peor + ' · ' + Cx.nombreSit(d.peor) : 'Sin deudas', chico: true, color: COLOR_SIT[d.peor || 0],
+        nota: Cx.alertasJuridicas(r).length ? '! ' + Cx.alertasJuridicas(r)[0] : '', notaAlerta: true },
       { titulo: 'Puntaje propio (1 a 999)', valor: pj == null ? '-' : pj, color: COLOR_SIT[banda] },
       { titulo: 'Deuda total' + (d.periodo ? ' (' + Cx.fmtPeriodo(d.periodo) + ')' : ''), valor: d.entidades.length ? pesos(d.total * 1000) : '-', nota: usdTotal !== null ? usd(usdTotal) : '', chico: true },
       { titulo: 'Entidades', valor: d.entidades.length },
-      { titulo: 'Cheques rechazados', valor: r.cheques ? r.cheques.length : '-' }
+      (function () {
+        if (!r.cheques) return { titulo: 'Cheques rechazados', valor: '-' };
+        var tch = Cx.totalCheques(r.cheques);
+        return { titulo: 'Cheques rechazados', valor: tch.cantidad ? tch.cantidad + '  ·  ' + pesos(tch.monto) : '0', chico: tch.cantidad > 0,
+          nota: tch.cantidad ? 'Impagos: ' + tch.impagos + (tch.impagos ? ' · ' + pesos(tch.montoImpagos) : '') : '', color: tch.impagos ? COLOR_SIT[4] : null };
+      })()
     ]);
 
     // Deudas por entidad
@@ -254,7 +263,13 @@
           body: r.cheques.map(function (c) {
             return [c.causal, String(c.entidad), String(c.nro || ''), Cx.fmtFecha(c.fecha), pesos(c.monto), c.fechaPago ? Cx.fmtFecha(c.fechaPago) : 'No',
               (c.estadoMulta || '') + (c.fechaPagoMulta ? ' (' + Cx.fmtFecha(c.fechaPagoMulta) + ')' : '')];
-          }),
+          }).concat((function () {
+            var tch = Cx.totalCheques(r.cheques), neg = { fontStyle: 'bold' };
+            return [
+              [{ content: 'Total: ' + tch.cantidad + (tch.cantidad === 1 ? ' cheque' : ' cheques'), colSpan: 4, styles: neg }, { content: pesos(tch.monto), styles: neg }, { content: '', colSpan: 2 }],
+              [{ content: 'Sin pagar: ' + tch.impagos + (tch.impagos === 1 ? ' cheque' : ' cheques'), colSpan: 4, styles: neg }, { content: pesos(tch.montoImpagos), styles: neg }, { content: '', colSpan: 2 }]
+            ];
+          })()),
           columnStyles: { 4: { halign: 'right' } }
         });
       } else {
@@ -342,11 +357,11 @@
         body: lista.map(function (r) {
           var d = r.deudas || { entidades: [], total: 0 }, pj = Cx.puntaje(r);
           return [r.nombre || r.referencia || '', Cx.fmtCuit(r.cuit), Cx.nombreCat(r.categoria), Cx.fmtPeriodo(d.periodo),
-            d.peor ? d.peor + ' · ' + Cx.nombreSit(d.peor) : 'Sin deudas', pj == null ? '-' : String(pj),
+            (d.peor ? d.peor + ' · ' + Cx.nombreSit(d.peor) : 'Sin deudas') + (Cx.alertasJuridicas(r).length ? '\n! ' + Cx.alertasJuridicas(r).join('\n! ') : ''), pj == null ? '-' : String(pj),
             d.entidades.length ? pesos(d.total * 1000) : '-', d.entidades.length ? usd(Cx.enDolares(d.total, d.periodo)) : '-',
-            String(d.entidades.length), r.cheques ? String(r.cheques.length) : '-'].concat(opciones.fact !== false ? [sf[r.cuit] != null ? pct(sf[r.cuit]) : ''] : []);
+            String(d.entidades.length), !r.cheques ? '-' : !r.cheques.length ? '0' : r.cheques.length + '\n' + pesos(Cx.totalCheques(r.cheques).monto)].concat(opciones.fact !== false ? [sf[r.cuit] != null ? pct(sf[r.cuit]) : ''] : []);
         }),
-        columnStyles: { 5: { halign: 'center' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'center' }, 9: { halign: 'center' }, 10: { halign: 'right' } },
+        columnStyles: { 5: { halign: 'center' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'center' }, 9: { halign: 'right' }, 10: { halign: 'right' } },
         didParseCell: function (h) {
           if (h.section !== 'body') return;
           if (h.column.index === 4 && /^\d/.test(String(h.cell.raw))) {
